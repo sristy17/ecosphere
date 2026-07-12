@@ -1,5 +1,6 @@
 const express = require('express');
 const pool = require('../db');
+const { notify } = require('../utils/notify');
 const router = express.Router();
 
 router.get('/', async (req, res) => {
@@ -37,12 +38,10 @@ router.post('/:id/redeem', async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-
     const rewardR = await client.query('SELECT * FROM rewards WHERE id=$1 FOR UPDATE', [req.params.id]);
     const reward = rewardR.rows[0];
     if (!reward) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Reward not found' }); }
     if (reward.stock <= 0) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Out of stock' }); }
-
     const balR = await client.query(`
       SELECT
         COALESCE((SELECT SUM(xp_earned) FROM challenge_participants WHERE employee_id=$1), 0) -
@@ -53,19 +52,15 @@ router.post('/:id/redeem', async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: `Insufficient points. Have ${balance}, need ${reward.points_required}` });
     }
-
     await client.query('UPDATE rewards SET stock = stock - 1 WHERE id=$1', [req.params.id]);
     const redemption = await client.query(
       'INSERT INTO reward_redemptions (employee_id, reward_id, points_spent) VALUES ($1,$2,$3) RETURNING *',
       [employee_id, req.params.id, reward.points_required]
     );
-
-    await client.query(
-      `INSERT INTO notifications (employee_id, type, message) VALUES ($1, 'reward_redeemed', $2)`,
-      [employee_id, `You redeemed "${reward.name}" for ${reward.points_required} points.`]
-    );
-
     await client.query('COMMIT');
+
+    await notify(employee_id, 'reward_redeemed', `You redeemed "${reward.name}" for ${reward.points_required} points.`);
+
     res.status(201).json(redemption.rows[0]);
   } catch (err) {
     await client.query('ROLLBACK');

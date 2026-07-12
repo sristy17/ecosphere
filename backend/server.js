@@ -13,7 +13,6 @@ const socialRoutes = require('./src/routes/social');
 const governanceRoutes = require('./src/routes/governance');
 const rewardsRoutes = require('./src/routes/rewards');
 const notificationsRoutes = require('./src/routes/notifications');
-
 const app = express();
 
 app.use(cors());
@@ -36,6 +35,8 @@ app.listen(PORT, () => {
 });
 
 app.use('/api/departments', departmentRoutes);
+app.use('/api/categories', require('./src/routes/categories'));
+app.use('/api/settings', require('./src/routes/settings'));
 app.use('/api/carbon', carbonRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/challenges', challengeRoutes);

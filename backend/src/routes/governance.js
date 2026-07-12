@@ -1,5 +1,6 @@
 const express = require('express');
 const pool = require('../db');
+const { notify } = require('../utils/notify');
 const router = express.Router();
 
 router.get('/policies', async (req, res) => {
@@ -83,6 +84,8 @@ router.put('/audits/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Resolve a free-text owner name to an employee_id by matching users.name.
+// Returns null if no user with that exact (case-insensitive) name exists.
 async function resolveOwnerEmployeeId(ownerName) {
   const r = await pool.query(
     `SELECT e.id FROM employees e JOIN users u ON u.id = e.user_id WHERE LOWER(u.name) = LOWER($1) LIMIT 1`,
@@ -91,6 +94,9 @@ async function resolveOwnerEmployeeId(ownerName) {
   return r.rows[0]?.id || null;
 }
 
+// Lazily notify owners of overdue, still-open compliance issues.
+// Dedupes by tagging each notification message with [Issue #id] and checking
+// that tag hasn't already been sent, since there's no scheduler in this app.
 async function notifyOverdueIssues() {
   const overdue = await pool.query(
     `SELECT id, description, owner, due_date FROM compliance_issues
@@ -98,7 +104,7 @@ async function notifyOverdueIssues() {
   );
   for (const issue of overdue.rows) {
     const employeeId = await resolveOwnerEmployeeId(issue.owner);
-    if (!employeeId) continue;
+    if (!employeeId) continue; // owner isn't a system user, can't notify
 
     const tag = `[Issue #${issue.id}]`;
     const already = await pool.query(
@@ -107,10 +113,7 @@ async function notifyOverdueIssues() {
     );
     if (already.rows.length) continue;
 
-    await pool.query(
-      `INSERT INTO notifications (employee_id, type, message) VALUES ($1, 'compliance_overdue', $2)`,
-      [employeeId, `${tag} Overdue: "${issue.description}" was due ${new Date(issue.due_date).toLocaleDateString()}.`]
-    );
+    await notify(employeeId, 'compliance_overdue', `${tag} Overdue: "${issue.description}" was due ${new Date(issue.due_date).toLocaleDateString()}.`);
   }
 }
 
@@ -145,10 +148,7 @@ router.post('/compliance-issues', async (req, res) => {
     let ownerNotified = false;
     const employeeId = await resolveOwnerEmployeeId(owner);
     if (employeeId) {
-      await pool.query(
-        `INSERT INTO notifications (employee_id, type, message) VALUES ($1, 'compliance_issue_raised', $2)`,
-        [employeeId, `[Issue #${issue.id}] New ${severity} compliance issue assigned to you: "${description}" (due ${new Date(due_date).toLocaleDateString()}).`]
-      );
+      await notify(employeeId, 'compliance_issue_raised', `[Issue #${issue.id}] New ${severity} compliance issue assigned to you: "${description}" (due ${new Date(due_date).toLocaleDateString()}).`);
       ownerNotified = true;
     }
 

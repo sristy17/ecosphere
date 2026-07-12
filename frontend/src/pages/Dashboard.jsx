@@ -8,7 +8,7 @@ import api from '../api/axios';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
-const TABS = ['Dashboard', 'Environmental', 'Social', 'Governance', 'Gamification', 'Rewards'];
+const TABS = ['Dashboard', 'Environmental', 'Social', 'Governance', 'Gamification', 'Rewards', 'Settings'];
 
 export default function Dashboard() {
   const [tab, setTab] = useState('Dashboard');
@@ -28,13 +28,19 @@ export default function Dashboard() {
   const [balance, setBalance] = useState({ balance: 0, total_earned: 0, total_spent: 0 });
   const [notifications, setNotifications] = useState([]);
   const [showNotifs, setShowNotifs] = useState(false);
-  const [proofInputs, setProofInputs] = useState({}); 
+  const [proofInputs, setProofInputs] = useState({});
   const [joinedChallengeIds, setJoinedChallengeIds] = useState(new Set());
   const [completedChallengeIds, setCompletedChallengeIds] = useState(new Set());
   const [audits, setAudits] = useState([]);
   const [complianceIssues, setComplianceIssues] = useState([]);
   const [newAudit, setNewAudit] = useState({ title: '', department_id: '', auditor: '', audit_date: '', findings: '' });
   const [newIssue, setNewIssue] = useState({ severity: 'medium', description: '', department_id: '', owner: '', due_date: '', audit_id: '' });
+  const [categories, setCategories] = useState([]);
+  const [esgConfig, setEsgConfig] = useState({ auto_emission_calculation: false, evidence_requirement: false, badge_auto_award: true });
+  const [notifSettings, setNotifSettings] = useState([]);
+  const [allDepartments, setAllDepartments] = useState([]);
+  const [newDept, setNewDept] = useState({ name: '', code: '', parent_department_id: '', status: 'active' });
+  const [newCategory, setNewCategory] = useState({ name: '', type: 'csr_activity' });
   const navigate = useNavigate();
   const notifRef = useRef(null);
 
@@ -50,6 +56,12 @@ export default function Dashboard() {
     api.get('/governance/acknowledgements').then((r) => setAcks(r.data)).catch(console.error);
     api.get('/rewards').then((r) => setRewards(r.data)).catch(console.error);
     api.get('/rewards/redemptions').then((r) => setRedemptions(r.data)).catch(console.error);
+    api.get('/governance/audits').then((r) => setAudits(r.data)).catch(console.error);
+    api.get('/governance/compliance-issues').then((r) => setComplianceIssues(r.data)).catch(console.error);
+    api.get('/departments').then((r) => setAllDepartments(r.data)).catch(console.error);
+    api.get('/categories').then((r) => setCategories(r.data)).catch(console.error);
+    api.get('/settings/esg-configuration').then((r) => setEsgConfig(r.data)).catch(console.error);
+    api.get('/settings/notification-settings').then((r) => setNotifSettings(r.data)).catch(console.error);
     if (employeeId) {
       api.get(`/badges/employee/${employeeId}`).then((r) => setMyBadges(r.data)).catch(console.error);
       api.get(`/rewards/balance/${employeeId}`).then((r) => setBalance(r.data)).catch(console.error);
@@ -63,8 +75,6 @@ export default function Dashboard() {
         })
         .catch(console.error);
     }
-    api.get('/governance/audits').then((r) => setAudits(r.data)).catch(console.error);
-    api.get('/governance/compliance-issues').then((r) => setComplianceIssues(r.data)).catch(console.error); 
   };
 
   useEffect(() => {
@@ -161,35 +171,91 @@ export default function Dashboard() {
   };
 
   const resolveIssue = async (id) => {
-  try {
-    await api.put(`/governance/compliance-issues/${id}/status`, { status: 'resolved' });
-    loadAll(me?.id);
-  } catch (err) { alert(err.response?.data?.error || 'Failed to update issue'); }
-};
+    try {
+      await api.put(`/governance/compliance-issues/${id}/status`, { status: 'resolved' });
+      loadAll(me?.id);
+    } catch (err) { alert(err.response?.data?.error || 'Failed to update issue'); }
+  };
 
   const severityColor = (s) => ({ high: '#ef4444', medium: '#f59e0b', low: '#8b93a7' }[s?.toLowerCase()] || '#8b93a7');
+
   const createAudit = async () => {
-  if (!newAudit.title) return alert('Title is required');
-  try {
-    await api.post('/governance/audits', newAudit);
-    setNewAudit({ title: '', department_id: '', auditor: '', audit_date: '', findings: '' });
-    loadAll(me?.id);
-  } catch (err) { alert(err.response?.data?.error || 'Failed to create audit'); }
-};
+    if (!newAudit.title) return alert('Title is required');
+    try {
+      await api.post('/governance/audits', newAudit);
+      setNewAudit({ title: '', department_id: '', auditor: '', audit_date: '', findings: '' });
+      loadAll(me?.id);
+    } catch (err) { alert(err.response?.data?.error || 'Failed to create audit'); }
+  };
 
   const createIssue = async () => {
-  if (!newIssue.description || !newIssue.owner || !newIssue.due_date) {
-    return alert('Description, owner, and due date are required');
-  }
-  try {
-    const res = await api.post('/governance/compliance-issues', newIssue);
-    if (!res.data.owner_notified) {
-      alert(`Issue created, but "${newIssue.owner}" doesn't match any user's name — they won't get a notification. Check spelling or use their exact account name.`);
+    if (!newIssue.description || !newIssue.owner || !newIssue.due_date) {
+      return alert('Description, owner, and due date are required');
     }
-    setNewIssue({ severity: 'medium', description: '', department_id: '', owner: '', due_date: '', audit_id: '' });
-    loadAll(me?.id);
-  } catch (err) { alert(err.response?.data?.error || 'Failed to create issue'); }
-};
+    try {
+      const res = await api.post('/governance/compliance-issues', newIssue);
+      if (!res.data.owner_notified) {
+        alert(`Issue created, but "${newIssue.owner}" doesn't match any user's name — they won't get a notification. Check spelling or use their exact account name.`);
+      }
+      setNewIssue({ severity: 'medium', description: '', department_id: '', owner: '', due_date: '', audit_id: '' });
+      loadAll(me?.id);
+    } catch (err) { alert(err.response?.data?.error || 'Failed to create issue'); }
+  };
+
+  const createDepartment = async () => {
+    if (!newDept.name) return alert('Name is required');
+    try {
+      await api.post('/departments', { ...newDept, parent_department_id: newDept.parent_department_id || null });
+      setNewDept({ name: '', code: '', parent_department_id: '', status: 'active' });
+      loadAll(me?.id);
+    } catch (err) { alert(err.response?.data?.error || 'Failed to create department'); }
+  };
+
+  const updateDepartmentStatus = async (id, status) => {
+    try { await api.put(`/departments/${id}`, { status }); loadAll(me?.id); }
+    catch (err) { alert(err.response?.data?.error || 'Failed to update department'); }
+  };
+
+  const deleteDepartment = async (id) => {
+    try { await api.delete(`/departments/${id}`); loadAll(me?.id); }
+    catch (err) { alert(err.response?.data?.error || 'Failed to delete department'); }
+  };
+
+  const createCategory = async () => {
+    if (!newCategory.name) return alert('Name is required');
+    try {
+      await api.post('/categories', newCategory);
+      setNewCategory({ name: '', type: 'csr_activity' });
+      loadAll(me?.id);
+    } catch (err) { alert(err.response?.data?.error || 'Failed to create category'); }
+  };
+
+  const toggleCategoryStatus = async (cat) => {
+    try {
+      await api.put(`/categories/${cat.id}`, { status: cat.status === 'active' ? 'inactive' : 'active' });
+      loadAll(me?.id);
+    } catch (err) { alert(err.response?.data?.error || 'Failed to update category'); }
+  };
+
+  const deleteCategory = async (id) => {
+    try { await api.delete(`/categories/${id}`); loadAll(me?.id); }
+    catch (err) { alert(err.response?.data?.error || 'Failed to delete category'); }
+  };
+
+  const updateEsgConfig = async (key, value) => {
+    try {
+      const res = await api.put('/settings/esg-configuration', { [key]: value });
+      setEsgConfig(res.data);
+    } catch (err) { alert(err.response?.data?.error || 'Failed to update configuration'); }
+  };
+
+  const toggleNotificationSetting = async (type, enabled) => {
+    try {
+      await api.put(`/settings/notification-settings/${type}`, { enabled });
+      setNotifSettings((prev) => prev.map((n) => (n.type === type ? { ...n, enabled } : n)));
+    } catch (err) { alert(err.response?.data?.error || 'Failed to update notification setting'); }
+  };
+
   const logout = () => { localStorage.removeItem('token'); navigate('/login'); };
 
   const section = { marginTop: 24, background: '#12151c', padding: 24, borderRadius: 12, border: '1px solid #1f232c' };
@@ -197,6 +263,15 @@ export default function Dashboard() {
   const th = { textAlign: 'left', padding: 8, borderBottom: '2px solid #ccc' };
   const td = { padding: 8, borderBottom: '1px solid #eee' };
   const btn = { padding: '4px 10px', marginRight: 6, cursor: 'pointer' };
+  const toggle = (on) => ({
+    width: 40, height: 22, borderRadius: 11, cursor: 'pointer',
+    background: on ? '#2563eb' : '#1f232c', border: '1px solid #1f232c',
+    position: 'relative', transition: 'background 0.15s', flexShrink: 0,
+  });
+  const toggleKnob = (on) => ({
+    width: 16, height: 16, borderRadius: '50%', background: 'white',
+    position: 'absolute', top: 2, left: on ? 20 : 2, transition: 'left 0.15s',
+  });
   const earnedBadgeIds = new Set(myBadges.map((b) => b.id));
   const unreadCount = notifications.filter((n) => !n.is_read).length;
 
@@ -243,7 +318,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginTop: 16, borderBottom: '1px solid #1f232c', paddingBottom: 8 }}>
+      <div style={{ display: 'flex', gap: 8, marginTop: 16, borderBottom: '1px solid #1f232c', paddingBottom: 8, flexWrap: 'wrap' }}>
         {TABS.map((t) => (
           <button
             key={t}
@@ -415,80 +490,79 @@ export default function Dashboard() {
             </table>
           </div>
           <div style={section}>
-          <h2>Audits</h2>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-            <input placeholder="Title" value={newAudit.title} onChange={(e) => setNewAudit({ ...newAudit, title: e.target.value })} style={{ padding: 6 }} />
-            <select value={newAudit.department_id} onChange={(e) => setNewAudit({ ...newAudit, department_id: e.target.value })} style={{ padding: 6 }}>
-              <option value="">Department</option>
-              {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
-            <input placeholder="Auditor" value={newAudit.auditor} onChange={(e) => setNewAudit({ ...newAudit, auditor: e.target.value })} style={{ padding: 6 }} />
-            <input type="date" value={newAudit.audit_date} onChange={(e) => setNewAudit({ ...newAudit, audit_date: e.target.value })} style={{ padding: 6 }} />
-            <input placeholder="Findings" value={newAudit.findings} onChange={(e) => setNewAudit({ ...newAudit, findings: e.target.value })} style={{ padding: 6, flex: 1, minWidth: 160 }} />
-            <button style={btn} onClick={createAudit}>+ New Audit</button>
+            <h2>Audits</h2>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              <input placeholder="Title" value={newAudit.title} onChange={(e) => setNewAudit({ ...newAudit, title: e.target.value })} style={{ padding: 6 }} />
+              <select value={newAudit.department_id} onChange={(e) => setNewAudit({ ...newAudit, department_id: e.target.value })} style={{ padding: 6 }}>
+                <option value="">Department</option>
+                {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+              <input placeholder="Auditor" value={newAudit.auditor} onChange={(e) => setNewAudit({ ...newAudit, auditor: e.target.value })} style={{ padding: 6 }} />
+              <input type="date" value={newAudit.audit_date} onChange={(e) => setNewAudit({ ...newAudit, audit_date: e.target.value })} style={{ padding: 6 }} />
+              <input placeholder="Findings" value={newAudit.findings} onChange={(e) => setNewAudit({ ...newAudit, findings: e.target.value })} style={{ padding: 6, flex: 1, minWidth: 160 }} />
+              <button style={btn} onClick={createAudit}>+ New Audit</button>
+            </div>
+            <table style={table}>
+              <thead><tr><th style={th}>Title</th><th style={th}>Department</th><th style={th}>Auditor</th><th style={th}>Date</th><th style={th}>Findings</th><th style={th}>Status</th></tr></thead>
+              <tbody>
+                {audits.map((a) => (
+                  <tr key={a.id}>
+                    <td style={td}>{a.title}</td>
+                    <td style={td}>{a.department_name || '—'}</td>
+                    <td style={td}>{a.auditor || '—'}</td>
+                    <td style={td}>{a.audit_date ? new Date(a.audit_date).toLocaleDateString() : '—'}</td>
+                    <td style={td}>{a.findings || '—'}</td>
+                    <td style={td}>{a.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <table style={table}>
-            <thead><tr><th style={th}>Title</th><th style={th}>Department</th><th style={th}>Auditor</th><th style={th}>Date</th><th style={th}>Findings</th><th style={th}>Status</th></tr></thead>
-            <tbody>
-              {audits.map((a) => (
-                <tr key={a.id}>
-                  <td style={td}>{a.title}</td>
-                  <td style={td}>{a.department_name || '—'}</td>
-                  <td style={td}>{a.auditor || '—'}</td>
-                  <td style={td}>{a.audit_date ? new Date(a.audit_date).toLocaleDateString() : '—'}</td>
-                  <td style={td}>{a.findings || '—'}</td>
-                  <td style={td}>{a.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div style={section}>
-          <h2>Compliance Issues</h2>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-            <select value={newIssue.severity} onChange={(e) => setNewIssue({ ...newIssue, severity: e.target.value })} style={{ padding: 6 }}>
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-            </select>
-            <input placeholder="Description" value={newIssue.description} onChange={(e) => setNewIssue({ ...newIssue, description: e.target.value })} style={{ padding: 6, flex: 1, minWidth: 160 }} />
-            <select value={newIssue.department_id} onChange={(e) => setNewIssue({ ...newIssue, department_id: e.target.value })} style={{ padding: 6 }}>
-              <option value="">Department</option>
-              {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
-            <select value={newIssue.audit_id} onChange={(e) => setNewIssue({ ...newIssue, audit_id: e.target.value })} style={{ padding: 6 }}>
-              <option value="">Linked audit (optional)</option>
-              {audits.map((a) => <option key={a.id} value={a.id}>{a.title}</option>)}
-            </select>
-            <input placeholder="Owner (exact account name)" value={newIssue.owner} onChange={(e) => setNewIssue({ ...newIssue, owner: e.target.value })} style={{ padding: 6 }} />
-            <input type="date" value={newIssue.due_date} onChange={(e) => setNewIssue({ ...newIssue, due_date: e.target.value })} style={{ padding: 6 }} />
-            <button style={btn} onClick={createIssue}>+ New Issue</button>
+          <div style={section}>
+            <h2>Compliance Issues</h2>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              <select value={newIssue.severity} onChange={(e) => setNewIssue({ ...newIssue, severity: e.target.value })} style={{ padding: 6 }}>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+              <input placeholder="Description" value={newIssue.description} onChange={(e) => setNewIssue({ ...newIssue, description: e.target.value })} style={{ padding: 6, flex: 1, minWidth: 160 }} />
+              <select value={newIssue.department_id} onChange={(e) => setNewIssue({ ...newIssue, department_id: e.target.value })} style={{ padding: 6 }}>
+                <option value="">Department</option>
+                {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+              <select value={newIssue.audit_id} onChange={(e) => setNewIssue({ ...newIssue, audit_id: e.target.value })} style={{ padding: 6 }}>
+                <option value="">Linked audit (optional)</option>
+                {audits.map((a) => <option key={a.id} value={a.id}>{a.title}</option>)}
+              </select>
+              <input placeholder="Owner (exact account name)" value={newIssue.owner} onChange={(e) => setNewIssue({ ...newIssue, owner: e.target.value })} style={{ padding: 6 }} />
+              <input type="date" value={newIssue.due_date} onChange={(e) => setNewIssue({ ...newIssue, due_date: e.target.value })} style={{ padding: 6 }} />
+              <button style={btn} onClick={createIssue}>+ New Issue</button>
+            </div>
+            <table style={table}>
+              <thead><tr><th style={th}>Issue</th><th style={th}>Severity</th><th style={th}>Department</th><th style={th}>Owner</th><th style={th}>Due Date</th><th style={th}>Status</th><th style={th}>Actions</th></tr></thead>
+              <tbody>
+                {complianceIssues.map((c) => (
+                  <tr key={c.id} style={c.is_overdue ? { background: 'rgba(239,68,68,0.08)' } : undefined}>
+                    <td style={td}>{c.description}</td>
+                    <td style={td}><span style={{ color: severityColor(c.severity), fontWeight: 600 }}>{c.severity}</span></td>
+                    <td style={td}>{c.department_name || '—'}</td>
+                    <td style={td}>{c.owner}</td>
+                    <td style={td}>
+                      {c.due_date ? new Date(c.due_date).toLocaleDateString() : '—'}
+                      {c.is_overdue && <span style={{ color: '#ef4444', marginLeft: 6, fontSize: 11 }}>OVERDUE</span>}
+                    </td>
+                    <td style={td}>{c.status}</td>
+                    <td style={td}>
+                      {c.status === 'open' && (
+                        <button style={btn} onClick={() => resolveIssue(c.id)}>Mark Resolved</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <table style={table}>
-            <thead><tr><th style={th}>Issue</th><th style={th}>Severity</th><th style={th}>Department</th><th style={th}>Owner</th><th style={th}>Due Date</th><th style={th}>Status</th><th style={th}>Actions</th></tr></thead>
-            <tbody>
-              {complianceIssues.map((c) => (
-                <tr key={c.id} style={c.is_overdue ? { background: 'rgba(239,68,68,0.08)' } : undefined}>
-                  <td style={td}>{c.description}</td>
-                  <td style={td}><span style={{ color: severityColor(c.severity), fontWeight: 600 }}>{c.severity}</span></td>
-                  <td style={td}>{c.department_name || '—'}</td>
-                  <td style={td}>{c.owner}</td>
-                  <td style={td}>
-                    {c.due_date ? new Date(c.due_date).toLocaleDateString() : '—'}
-                    {c.is_overdue && <span style={{ color: '#ef4444', marginLeft: 6, fontSize: 11 }}>OVERDUE</span>}
-                  </td>
-                  <td style={td}>{c.status}</td>
-                  <td style={td}>
-                    {c.status === 'open' && (
-                      <button style={btn} onClick={() => resolveIssue(c.id)}>Mark Resolved</button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
         </>
       )}
 
@@ -587,6 +661,102 @@ export default function Dashboard() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </>
+      )}
+
+      {tab === 'Settings' && (
+        <>
+          <div style={section}>
+            <h2>Departments</h2>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              <input placeholder="Name" value={newDept.name} onChange={(e) => setNewDept({ ...newDept, name: e.target.value })} style={{ padding: 6 }} />
+              <input placeholder="Code" value={newDept.code} onChange={(e) => setNewDept({ ...newDept, code: e.target.value })} style={{ padding: 6, width: 80 }} />
+              <select value={newDept.parent_department_id} onChange={(e) => setNewDept({ ...newDept, parent_department_id: e.target.value })} style={{ padding: 6 }}>
+                <option value="">No parent</option>
+                {allDepartments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+              <button style={btn} onClick={createDepartment}>+ New Department</button>
+            </div>
+            <table style={table}>
+              <thead><tr><th style={th}>Name</th><th style={th}>Code</th><th style={th}>Parent</th><th style={th}>Employees</th><th style={th}>Status</th><th style={th}>Actions</th></tr></thead>
+              <tbody>
+                {allDepartments.map((d) => (
+                  <tr key={d.id}>
+                    <td style={td}>{d.name}</td>
+                    <td style={td}>{d.code || '—'}</td>
+                    <td style={td}>{d.parent_department_name || '—'}</td>
+                    <td style={td}>{d.employee_count}</td>
+                    <td style={td}>{d.status}</td>
+                    <td style={td}>
+                      <button style={btn} onClick={() => updateDepartmentStatus(d.id, d.status === 'active' ? 'inactive' : 'active')}>
+                        {d.status === 'active' ? 'Deactivate' : 'Activate'}
+                      </button>
+                      <button style={btn} onClick={() => deleteDepartment(d.id)}>Delete</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={section}>
+            <h2>Categories</h2>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <input placeholder="Name" value={newCategory.name} onChange={(e) => setNewCategory({ ...newCategory, name: e.target.value })} style={{ padding: 6 }} />
+              <select value={newCategory.type} onChange={(e) => setNewCategory({ ...newCategory, type: e.target.value })} style={{ padding: 6 }}>
+                <option value="csr_activity">CSR Activity</option>
+                <option value="challenge">Challenge</option>
+              </select>
+              <button style={btn} onClick={createCategory}>+ New Category</button>
+            </div>
+            <table style={table}>
+              <thead><tr><th style={th}>Name</th><th style={th}>Type</th><th style={th}>Status</th><th style={th}>Actions</th></tr></thead>
+              <tbody>
+                {categories.map((c) => (
+                  <tr key={c.id}>
+                    <td style={td}>{c.name}</td>
+                    <td style={td}>{c.type === 'csr_activity' ? 'CSR Activity' : 'Challenge'}</td>
+                    <td style={td}>{c.status}</td>
+                    <td style={td}>
+                      <button style={btn} onClick={() => toggleCategoryStatus(c)}>{c.status === 'active' ? 'Deactivate' : 'Activate'}</button>
+                      <button style={btn} onClick={() => deleteCategory(c.id)}>Delete</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={section}>
+            <h2>ESG Configuration</h2>
+            {[
+              ['auto_emission_calculation', 'Enable auto emission calculation', 'Carbon Transactions are calculated automatically from Purchase/Manufacturing/Expense/Fleet records instead of manual entry.'],
+              ['evidence_requirement', 'Require evidence for all CSR activities', 'CSR participation cannot be approved without an attached proof file.'],
+              ['badge_auto_award', 'Auto-award badges on challenge completion', 'Badges are assigned automatically the moment XP or completed-challenge thresholds are met.'],
+            ].map(([key, label, desc]) => (
+              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 0', borderBottom: '1px solid #1f232c' }}>
+                <div onClick={() => updateEsgConfig(key, !esgConfig[key])} style={toggle(esgConfig[key])}>
+                  <div style={toggleKnob(esgConfig[key])} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 600 }}>{label}</div>
+                  <div style={{ fontSize: 12, color: '#8b93a7' }}>{desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={section}>
+            <h2>Notification Settings</h2>
+            {notifSettings.map((n) => (
+              <div key={n.type} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '10px 0', borderBottom: '1px solid #1f232c' }}>
+                <div onClick={() => toggleNotificationSetting(n.type, !n.enabled)} style={toggle(n.enabled)}>
+                  <div style={toggleKnob(n.enabled)} />
+                </div>
+                <div style={{ fontWeight: 600 }}>{n.type.replace(/_/g, ' ')}</div>
+              </div>
+            ))}
           </div>
         </>
       )}

@@ -1,11 +1,16 @@
 const express = require('express');
 const pool = require('../db');
-
 const router = express.Router();
 
 router.get('/', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM departments ORDER BY id');
+    const result = await pool.query(`
+      SELECT d.*, p.name AS parent_department_name,
+        (SELECT COUNT(*) FROM employees e WHERE e.department_id = d.id) AS employee_count
+      FROM departments d
+      LEFT JOIN departments p ON p.id = d.parent_department_id
+      ORDER BY d.id
+    `);
     res.json(result.rows);
   } catch (err) {
     console.error(err);
@@ -15,7 +20,13 @@ router.get('/', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM departments WHERE id = $1', [req.params.id]);
+    const result = await pool.query(`
+      SELECT d.*, p.name AS parent_department_name,
+        (SELECT COUNT(*) FROM employees e WHERE e.department_id = d.id) AS employee_count
+      FROM departments d
+      LEFT JOIN departments p ON p.id = d.parent_department_id
+      WHERE d.id = $1
+    `, [req.params.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
     res.json(result.rows[0]);
   } catch (err) {
@@ -25,13 +36,13 @@ router.get('/:id', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const { name, code, head_id } = req.body;
+  const { name, code, head_id, parent_department_id, status } = req.body;
   if (!name) return res.status(400).json({ error: 'name is required' });
-
   try {
     const result = await pool.query(
-      'INSERT INTO departments (name, code, head_id) VALUES ($1, $2, $3) RETURNING *',
-      [name, code || null, head_id || null]
+      `INSERT INTO departments (name, code, head_id, parent_department_id, status)
+       VALUES ($1, $2, $3, $4, COALESCE($5, 'active')) RETURNING *`,
+      [name, code || null, head_id || null, parent_department_id || null, status || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -41,11 +52,20 @@ router.post('/', async (req, res) => {
 });
 
 router.put('/:id', async (req, res) => {
-  const { name, code, head_id } = req.body;
+  const { name, code, head_id, parent_department_id, status } = req.body;
+  if (parent_department_id && String(parent_department_id) === req.params.id) {
+    return res.status(400).json({ error: 'A department cannot be its own parent' });
+  }
   try {
     const result = await pool.query(
-      'UPDATE departments SET name = COALESCE($1, name), code = COALESCE($2, code), head_id = COALESCE($3, head_id) WHERE id = $4 RETURNING *',
-      [name, code, head_id, req.params.id]
+      `UPDATE departments SET
+        name = COALESCE($1, name),
+        code = COALESCE($2, code),
+        head_id = COALESCE($3, head_id),
+        parent_department_id = COALESCE($4, parent_department_id),
+        status = COALESCE($5, status)
+       WHERE id = $6 RETURNING *`,
+      [name, code, head_id, parent_department_id, status, req.params.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
     res.json(result.rows[0]);
@@ -61,6 +81,10 @@ router.delete('/:id', async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
     res.json({ deleted: true });
   } catch (err) {
+    // Foreign key violation: department still referenced by employees, child depts, etc.
+    if (err.code === '23503') {
+      return res.status(409).json({ error: 'Cannot delete: department is still referenced by employees or other records. Set status to inactive instead.' });
+    }
     console.error(err);
     res.status(500).json({ error: 'Failed to delete department' });
   }

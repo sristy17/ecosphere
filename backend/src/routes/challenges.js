@@ -1,5 +1,6 @@
 const express = require('express');
 const pool = require('../db');
+const { notify, getEsgConfig } = require('../utils/notify');
 
 const router = express.Router();
 
@@ -191,18 +192,13 @@ router.post('/:id/complete', async (req, res) => {
       });
     }
 
-    const newBadges = await awardEligibleBadges(employee_id);
+    const config = await getEsgConfig();
+    const newBadges = config.badge_auto_award ? await awardEligibleBadges(employee_id) : [];
 
-    await pool.query(
-      `INSERT INTO notifications (employee_id, type, message) VALUES ($1, 'challenge_completed', $2)`,
-      [employee_id, `You completed a challenge and earned ${xp} XP.`]
-    );
+    await notify(employee_id, 'challenge_completed', `You completed a challenge and earned ${xp} XP.`);
 
     for (const badge of newBadges) {
-      await pool.query(
-        `INSERT INTO notifications (employee_id, type, message) VALUES ($1, 'badge_unlocked', $2)`,
-        [employee_id, `Badge unlocked: "${badge.name}"!`]
-      );
+      await notify(employee_id, 'badge_unlocked', `Badge unlocked: "${badge.name}"!`);
     }
 
     res.json({

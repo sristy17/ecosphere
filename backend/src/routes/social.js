@@ -1,5 +1,6 @@
 const express = require('express');
 const pool = require('../db');
+const { notify, getEsgConfig } = require('../utils/notify');
 const router = express.Router();
 
 router.get('/activities', async (req, res) => {
@@ -36,18 +37,18 @@ router.post('/participation/:id/approve', async (req, res) => {
   try {
     const check = await pool.query('SELECT proof_url FROM csr_participation WHERE id=$1', [req.params.id]);
     if (!check.rows[0]) return res.status(404).json({ error: 'Not found' });
-    if (!check.rows[0].proof_url) {
-      return res.status(400).json({ error: 'Cannot approve without proof — evidence is required' });
+
+    const config = await getEsgConfig();
+    if (config.evidence_requirement && !check.rows[0].proof_url) {
+      return res.status(400).json({ error: 'Cannot approve without proof — evidence is required (Settings → ESG Configuration)' });
     }
+
     const r = await pool.query(
       `UPDATE csr_participation SET approval_status='approved', points_earned=25, reviewed_at=NOW()
        WHERE id=$1 RETURNING *`,
       [req.params.id]
     );
-    await pool.query(
-      `INSERT INTO notifications (employee_id, type, message) VALUES ($1, 'csr_approved', $2)`,
-      [r.rows[0].employee_id, `Your CSR activity participation was approved — 25 points earned.`]
-    );
+    await notify(r.rows[0].employee_id, 'csr_approved', 'Your CSR activity participation was approved — 25 points earned.');
     res.json(r.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -59,10 +60,7 @@ router.post('/participation/:id/reject', async (req, res) => {
        WHERE id=$1 RETURNING *`,
       [req.params.id]
     );
-    await pool.query(
-  `INSERT INTO notifications (employee_id, type, message) VALUES ($1, 'csr_rejected', $2)`,
-  [r.rows[0].employee_id, `Your CSR activity participation was rejected. You can review and resubmit.`]
-  );
+    await notify(r.rows[0].employee_id, 'csr_rejected', 'Your CSR activity participation was rejected. You can review and resubmit.');
     res.json(r.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
