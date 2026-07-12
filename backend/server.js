@@ -13,6 +13,7 @@ const socialRoutes = require('./src/routes/social');
 const governanceRoutes = require('./src/routes/governance');
 const rewardsRoutes = require('./src/routes/rewards');
 const notificationsRoutes = require('./src/routes/notifications');
+const reportsRoutes = require('./src/routes/reports');
 const app = express();
 
 app.use(cors());
@@ -45,3 +46,4 @@ app.use('/api/social', socialRoutes);
 app.use('/api/governance', governanceRoutes);
 app.use('/api/rewards', rewardsRoutes);
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/reports', reportsRoutes);

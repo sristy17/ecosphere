@@ -8,7 +8,7 @@ import api from '../api/axios';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
-const TABS = ['Dashboard', 'Environmental', 'Social', 'Governance', 'Gamification', 'Rewards', 'Settings'];
+const TABS = ['Dashboard', 'Environmental', 'Social', 'Governance', 'Gamification', 'Rewards', 'Settings', 'Reports'];
 
 export default function Dashboard() {
   const [tab, setTab] = useState('Dashboard');
@@ -41,6 +41,12 @@ export default function Dashboard() {
   const [allDepartments, setAllDepartments] = useState([]);
   const [newDept, setNewDept] = useState({ name: '', code: '', parent_department_id: '', status: 'active' });
   const [newCategory, setNewCategory] = useState({ name: '', type: 'csr_activity' });
+  const [reportFilters, setReportFilters] = useState({
+  module: 'environmental', department_id: '', employee_id: '',
+  challenge_id: '', esg_category: '', start_date: '', end_date: '',
+  });
+  const [reportPreview, setReportPreview] = useState(null); 
+  const [reportLoading, setReportLoading] = useState(false);
   const navigate = useNavigate();
   const notifRef = useRef(null);
 
@@ -94,6 +100,10 @@ export default function Dashboard() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+  if (tab !== 'Reports') setReportPreview(null);
+  }, [tab]);
 
   const setMyDepartment = async (department_id) => {
     if (!me) return;
@@ -288,6 +298,34 @@ export default function Dashboard() {
   const socialScore = activities.length ? Math.round((participation.length / (activities.length * 3)) * 100) : 0;
   const govScore = policies.length ? Math.round((acks.length / (policies.length * 3)) * 100) : 0;
   const overallScore = Math.round(envScore * 0.4 + Math.min(socialScore, 100) * 0.3 + Math.min(govScore, 100) * 0.3);
+
+  const downloadReport = (endpoint, params, format) => {
+  const query = new URLSearchParams({ ...params, format }).toString();
+  window.open(`${api.defaults.baseURL}${endpoint}?${query}`, '_blank');
+  };
+  const previewReport = async (endpoint, params) => {
+  setReportLoading(true);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000); 
+  try {
+    const query = new URLSearchParams({ ...params, format: 'json' }).toString();
+    const res = await api.get(`${endpoint}?${query}`, { signal: controller.signal });
+    setReportPreview(res.data);
+  } catch (err) {
+    if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') {
+      alert('Report timed out — the backend took too long to respond.');
+    } else {
+      alert(err.response?.data?.error || 'Failed to generate report');
+    }
+  } finally {
+    clearTimeout(timeoutId);
+    setReportLoading(false);
+  }
+};
+
+  const runCustomReport = () => previewReport('/reports/custom', reportFilters);
+
+  const downloadCustomReport = (format) => downloadReport('/reports/custom', reportFilters, format);
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', fontFamily: 'sans-serif', padding: '20px' }}>
@@ -757,6 +795,96 @@ export default function Dashboard() {
                 <div style={{ fontWeight: 600 }}>{n.type.replace(/_/g, ' ')}</div>
               </div>
             ))}
+          </div>
+        </>
+      )}
+
+      {tab === 'Reports' && (
+        <>
+          <div style={section}>
+            <h2>Standard Reports</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginTop: 12 }}>
+              {[
+                { key: 'environmental', title: 'Environmental Report', desc: 'Emissions, goals, department breakdown', endpoint: '/reports/environmental' },
+                { key: 'social', title: 'Social Report', desc: 'CSR participation by department', endpoint: '/reports/social' },
+                { key: 'governance', title: 'Governance Report', desc: 'Policies, audits, compliance summary', endpoint: '/reports/governance' },
+                { key: 'esg-summary', title: 'ESG Summary', desc: 'Executive overview: department comparison', endpoint: '/reports/esg-summary' },
+              ].map((r) => (
+                <div key={r.key} style={{ border: '1px solid #1f232c', borderRadius: 8, padding: 16 }}>
+                  <strong>{r.title}</strong>
+                  <p style={{ fontSize: 13, color: '#8b93a7' }}>{r.desc}</p>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button style={btn} onClick={() => previewReport(r.endpoint, {})}>Preview</button>
+                    <button style={btn} onClick={() => downloadReport(r.endpoint, {}, 'pdf')}>PDF</button>
+                    <button style={btn} onClick={() => downloadReport(r.endpoint, {}, 'excel')}>Excel</button>
+                    <button style={btn} onClick={() => downloadReport(r.endpoint, {}, 'csv')}>CSV</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={section}>
+            <h2>Custom Report Builder</h2>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              <select
+                  value={reportFilters.module}
+                  onChange={(e) => {
+                    setReportFilters({ ...reportFilters, module: e.target.value });
+                    setReportPreview(null);
+                  }}
+                  style={{ padding: 6 }}
+                >
+                <option value="environmental">Environmental</option>
+                <option value="social">Social</option>
+                <option value="governance">Governance</option>
+                <option value="gamification">Gamification</option>
+              </select>
+              <select value={reportFilters.department_id} onChange={(e) => setReportFilters({ ...reportFilters, department_id: e.target.value })} style={{ padding: 6 }}>
+                <option value="">All Departments</option>
+                {allDepartments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+              <select value={reportFilters.employee_id} onChange={(e) => setReportFilters({ ...reportFilters, employee_id: e.target.value })} style={{ padding: 6 }}>
+                <option value="">All Employees</option>
+                {leaderboard.map((l) => <option key={l.employee_id} value={l.employee_id}>{l.name}</option>)}
+              </select>
+              <select value={reportFilters.challenge_id} onChange={(e) => setReportFilters({ ...reportFilters, challenge_id: e.target.value })} style={{ padding: 6 }}>
+                <option value="">All Challenges</option>
+                {challenges.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+              </select>
+              <input type="date" value={reportFilters.start_date} onChange={(e) => setReportFilters({ ...reportFilters, start_date: e.target.value })} style={{ padding: 6 }} />
+              <input type="date" value={reportFilters.end_date} onChange={(e) => setReportFilters({ ...reportFilters, end_date: e.target.value })} style={{ padding: 6 }} />
+              <button style={btn} onClick={runCustomReport} disabled={reportLoading}>
+                {reportLoading ? 'Running…' : '▶ Run Report'}
+              </button>
+              <button style={btn} onClick={() => downloadCustomReport('pdf')}>Export: PDF</button>
+              <button style={btn} onClick={() => downloadCustomReport('excel')}>Export: Excel</button>
+              <button style={btn} onClick={() => downloadCustomReport('csv')}>Export: CSV</button>
+            </div>
+
+            {reportPreview && (
+              <div style={{ marginTop: 16 }}>
+                <h3 style={{ marginBottom: 2 }}>{reportPreview.title}</h3>
+                {reportPreview.subtitle && <p style={{ fontSize: 13, color: '#8b93a7' }}>{reportPreview.subtitle}</p>}
+                <table style={table}>
+                  <thead>
+                    <tr>
+                      {reportPreview.columns.map((c) => <th key={c.key} style={th}>{c.label}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportPreview.rows.length === 0 && (
+                      <tr><td style={td} colSpan={reportPreview.columns.length}>No data for these filters.</td></tr>
+                    )}
+                    {reportPreview.rows.map((row, i) => (
+                      <tr key={i}>
+                        {reportPreview.columns.map((c) => <td key={c.key} style={td}>{String(row[c.key] ?? '—')}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </>
       )}
