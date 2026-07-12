@@ -4,6 +4,8 @@ require('dotenv').config();
 
 const pool = require('./src/db');
 const authRoutes = require('./src/routes/auth');
+const departmentRoutes = require('./src/routes/departments');
+const carbonRoutes = require('./src/routes/carbon');
 
 const app = express();
 
@@ -25,3 +27,6 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
+
+app.use('/api/departments', departmentRoutes);
+app.use('/api/carbon', carbonRoutes);
