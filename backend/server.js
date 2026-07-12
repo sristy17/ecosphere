@@ -6,6 +6,8 @@ const pool = require('./src/db');
 const authRoutes = require('./src/routes/auth');
 const departmentRoutes = require('./src/routes/departments');
 const carbonRoutes = require('./src/routes/carbon');
+const employeeRoutes = require('./src/routes/employees');
+const challengeRoutes = require('./src/routes/challenges');
 
 const app = express();
 
@@ -30,3 +32,5 @@ app.listen(PORT, () => {
 
 app.use('/api/departments', departmentRoutes);
 app.use('/api/carbon', carbonRoutes);
+app.use('/api/employees', employeeRoutes);
+app.use('/api/challenges', challengeRoutes);
