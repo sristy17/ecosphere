@@ -83,8 +83,40 @@ router.put('/audits/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+async function resolveOwnerEmployeeId(ownerName) {
+  const r = await pool.query(
+    `SELECT e.id FROM employees e JOIN users u ON u.id = e.user_id WHERE LOWER(u.name) = LOWER($1) LIMIT 1`,
+    [ownerName]
+  );
+  return r.rows[0]?.id || null;
+}
+
+async function notifyOverdueIssues() {
+  const overdue = await pool.query(
+    `SELECT id, description, owner, due_date FROM compliance_issues
+     WHERE status = 'open' AND due_date < CURRENT_DATE`
+  );
+  for (const issue of overdue.rows) {
+    const employeeId = await resolveOwnerEmployeeId(issue.owner);
+    if (!employeeId) continue;
+
+    const tag = `[Issue #${issue.id}]`;
+    const already = await pool.query(
+      `SELECT id FROM notifications WHERE type = 'compliance_overdue' AND message LIKE $1 LIMIT 1`,
+      [`%${tag}%`]
+    );
+    if (already.rows.length) continue;
+
+    await pool.query(
+      `INSERT INTO notifications (employee_id, type, message) VALUES ($1, 'compliance_overdue', $2)`,
+      [employeeId, `${tag} Overdue: "${issue.description}" was due ${new Date(issue.due_date).toLocaleDateString()}.`]
+    );
+  }
+}
+
 router.get('/compliance-issues', async (req, res) => {
   try {
+    await notifyOverdueIssues();
     const r = await pool.query(`
       SELECT ci.*, d.name AS department_name, a.title AS audit_title,
         (ci.status = 'open' AND ci.due_date < CURRENT_DATE) AS is_overdue
@@ -108,7 +140,19 @@ router.post('/compliance-issues', async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
       [audit_id || null, severity, description, department_id || null, owner, due_date]
     );
-    res.status(201).json(r.rows[0]);
+    const issue = r.rows[0];
+
+    let ownerNotified = false;
+    const employeeId = await resolveOwnerEmployeeId(owner);
+    if (employeeId) {
+      await pool.query(
+        `INSERT INTO notifications (employee_id, type, message) VALUES ($1, 'compliance_issue_raised', $2)`,
+        [employeeId, `[Issue #${issue.id}] New ${severity} compliance issue assigned to you: "${description}" (due ${new Date(due_date).toLocaleDateString()}).`]
+      );
+      ownerNotified = true;
+    }
+
+    res.status(201).json({ ...issue, owner_notified: ownerNotified });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

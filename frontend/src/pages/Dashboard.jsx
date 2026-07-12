@@ -28,9 +28,13 @@ export default function Dashboard() {
   const [balance, setBalance] = useState({ balance: 0, total_earned: 0, total_spent: 0 });
   const [notifications, setNotifications] = useState([]);
   const [showNotifs, setShowNotifs] = useState(false);
-  const [proofInputs, setProofInputs] = useState({}); // { [activityId]: url }
+  const [proofInputs, setProofInputs] = useState({}); 
   const [joinedChallengeIds, setJoinedChallengeIds] = useState(new Set());
   const [completedChallengeIds, setCompletedChallengeIds] = useState(new Set());
+  const [audits, setAudits] = useState([]);
+  const [complianceIssues, setComplianceIssues] = useState([]);
+  const [newAudit, setNewAudit] = useState({ title: '', department_id: '', auditor: '', audit_date: '', findings: '' });
+  const [newIssue, setNewIssue] = useState({ severity: 'medium', description: '', department_id: '', owner: '', due_date: '', audit_id: '' });
   const navigate = useNavigate();
   const notifRef = useRef(null);
 
@@ -59,6 +63,8 @@ export default function Dashboard() {
         })
         .catch(console.error);
     }
+    api.get('/governance/audits').then((r) => setAudits(r.data)).catch(console.error);
+    api.get('/governance/compliance-issues').then((r) => setComplianceIssues(r.data)).catch(console.error); 
   };
 
   useEffect(() => {
@@ -69,7 +75,6 @@ export default function Dashboard() {
       .catch(() => loadAll(null));
   }, [navigate]);
 
-  // Close the notification dropdown when clicking outside it
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (notifRef.current && !notifRef.current.contains(e.target)) {
@@ -95,7 +100,6 @@ export default function Dashboard() {
       setJoinedChallengeIds((prev) => new Set(prev).add(id));
       loadAll(me.id);
     } catch (err) {
-      // 409 = already joined earlier (e.g. before a page refresh) — treat as joined, not an error
       if (err.response?.status === 409) {
         setJoinedChallengeIds((prev) => new Set(prev).add(id));
       } else {
@@ -110,15 +114,14 @@ export default function Dashboard() {
       const res = await api.post(`/challenges/${id}/complete`, { employee_id: me.id });
       setCompletedChallengeIds((prev) => new Set(prev).add(id));
       if (res.data.new_badges?.length) {
-        alert(`🎉 New badge: ${res.data.new_badges.map(b => b.name).join(', ')}`);
+        alert(`New badge: ${res.data.new_badges.map(b => b.name).join(', ')}`);
       } else {
-        alert(`✅ Challenge completed — ${res.data.participation?.xp_earned ?? ''} XP earned.`);
+        alert(`Challenge completed — ${res.data.participation?.xp_earned ?? ''} XP earned.`);
       }
       loadAll(me.id);
     } catch (err) { alert(err.response?.data?.error || 'Failed to complete'); }
   };
 
-  // Single, working joinActivity — uses the inline proof URL field, no browser prompt()
   const joinActivity = async (id) => {
     if (!me) return alert('No employee record linked yet');
     const proof_url = proofInputs[id] || null;
@@ -157,6 +160,36 @@ export default function Dashboard() {
     } catch (err) { console.error(err); }
   };
 
+  const resolveIssue = async (id) => {
+  try {
+    await api.put(`/governance/compliance-issues/${id}/status`, { status: 'resolved' });
+    loadAll(me?.id);
+  } catch (err) { alert(err.response?.data?.error || 'Failed to update issue'); }
+};
+
+  const severityColor = (s) => ({ high: '#ef4444', medium: '#f59e0b', low: '#8b93a7' }[s?.toLowerCase()] || '#8b93a7');
+  const createAudit = async () => {
+  if (!newAudit.title) return alert('Title is required');
+  try {
+    await api.post('/governance/audits', newAudit);
+    setNewAudit({ title: '', department_id: '', auditor: '', audit_date: '', findings: '' });
+    loadAll(me?.id);
+  } catch (err) { alert(err.response?.data?.error || 'Failed to create audit'); }
+};
+
+  const createIssue = async () => {
+  if (!newIssue.description || !newIssue.owner || !newIssue.due_date) {
+    return alert('Description, owner, and due date are required');
+  }
+  try {
+    const res = await api.post('/governance/compliance-issues', newIssue);
+    if (!res.data.owner_notified) {
+      alert(`Issue created, but "${newIssue.owner}" doesn't match any user's name — they won't get a notification. Check spelling or use their exact account name.`);
+    }
+    setNewIssue({ severity: 'medium', description: '', department_id: '', owner: '', due_date: '', audit_id: '' });
+    loadAll(me?.id);
+  } catch (err) { alert(err.response?.data?.error || 'Failed to create issue'); }
+};
   const logout = () => { localStorage.removeItem('token'); navigate('/login'); };
 
   const section = { marginTop: 24, background: '#12151c', padding: 24, borderRadius: 12, border: '1px solid #1f232c' };
@@ -381,6 +414,81 @@ export default function Dashboard() {
               </tbody>
             </table>
           </div>
+          <div style={section}>
+          <h2>Audits</h2>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+            <input placeholder="Title" value={newAudit.title} onChange={(e) => setNewAudit({ ...newAudit, title: e.target.value })} style={{ padding: 6 }} />
+            <select value={newAudit.department_id} onChange={(e) => setNewAudit({ ...newAudit, department_id: e.target.value })} style={{ padding: 6 }}>
+              <option value="">Department</option>
+              {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+            <input placeholder="Auditor" value={newAudit.auditor} onChange={(e) => setNewAudit({ ...newAudit, auditor: e.target.value })} style={{ padding: 6 }} />
+            <input type="date" value={newAudit.audit_date} onChange={(e) => setNewAudit({ ...newAudit, audit_date: e.target.value })} style={{ padding: 6 }} />
+            <input placeholder="Findings" value={newAudit.findings} onChange={(e) => setNewAudit({ ...newAudit, findings: e.target.value })} style={{ padding: 6, flex: 1, minWidth: 160 }} />
+            <button style={btn} onClick={createAudit}>+ New Audit</button>
+          </div>
+          <table style={table}>
+            <thead><tr><th style={th}>Title</th><th style={th}>Department</th><th style={th}>Auditor</th><th style={th}>Date</th><th style={th}>Findings</th><th style={th}>Status</th></tr></thead>
+            <tbody>
+              {audits.map((a) => (
+                <tr key={a.id}>
+                  <td style={td}>{a.title}</td>
+                  <td style={td}>{a.department_name || '—'}</td>
+                  <td style={td}>{a.auditor || '—'}</td>
+                  <td style={td}>{a.audit_date ? new Date(a.audit_date).toLocaleDateString() : '—'}</td>
+                  <td style={td}>{a.findings || '—'}</td>
+                  <td style={td}>{a.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={section}>
+          <h2>Compliance Issues</h2>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+            <select value={newIssue.severity} onChange={(e) => setNewIssue({ ...newIssue, severity: e.target.value })} style={{ padding: 6 }}>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+            <input placeholder="Description" value={newIssue.description} onChange={(e) => setNewIssue({ ...newIssue, description: e.target.value })} style={{ padding: 6, flex: 1, minWidth: 160 }} />
+            <select value={newIssue.department_id} onChange={(e) => setNewIssue({ ...newIssue, department_id: e.target.value })} style={{ padding: 6 }}>
+              <option value="">Department</option>
+              {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+            <select value={newIssue.audit_id} onChange={(e) => setNewIssue({ ...newIssue, audit_id: e.target.value })} style={{ padding: 6 }}>
+              <option value="">Linked audit (optional)</option>
+              {audits.map((a) => <option key={a.id} value={a.id}>{a.title}</option>)}
+            </select>
+            <input placeholder="Owner (exact account name)" value={newIssue.owner} onChange={(e) => setNewIssue({ ...newIssue, owner: e.target.value })} style={{ padding: 6 }} />
+            <input type="date" value={newIssue.due_date} onChange={(e) => setNewIssue({ ...newIssue, due_date: e.target.value })} style={{ padding: 6 }} />
+            <button style={btn} onClick={createIssue}>+ New Issue</button>
+          </div>
+          <table style={table}>
+            <thead><tr><th style={th}>Issue</th><th style={th}>Severity</th><th style={th}>Department</th><th style={th}>Owner</th><th style={th}>Due Date</th><th style={th}>Status</th><th style={th}>Actions</th></tr></thead>
+            <tbody>
+              {complianceIssues.map((c) => (
+                <tr key={c.id} style={c.is_overdue ? { background: 'rgba(239,68,68,0.08)' } : undefined}>
+                  <td style={td}>{c.description}</td>
+                  <td style={td}><span style={{ color: severityColor(c.severity), fontWeight: 600 }}>{c.severity}</span></td>
+                  <td style={td}>{c.department_name || '—'}</td>
+                  <td style={td}>{c.owner}</td>
+                  <td style={td}>
+                    {c.due_date ? new Date(c.due_date).toLocaleDateString() : '—'}
+                    {c.is_overdue && <span style={{ color: '#ef4444', marginLeft: 6, fontSize: 11 }}>OVERDUE</span>}
+                  </td>
+                  <td style={td}>{c.status}</td>
+                  <td style={td}>
+                    {c.status === 'open' && (
+                      <button style={btn} onClick={() => resolveIssue(c.id)}>Mark Resolved</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         </>
       )}
 
