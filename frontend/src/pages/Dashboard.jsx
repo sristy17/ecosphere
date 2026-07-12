@@ -41,6 +41,10 @@ export default function Dashboard() {
   const [allDepartments, setAllDepartments] = useState([]);
   const [newDept, setNewDept] = useState({ name: '', code: '', parent_department_id: '', status: 'active' });
   const [newCategory, setNewCategory] = useState({ name: '', type: 'csr_activity' });
+  const [emissionFactors, setEmissionFactors] = useState([]);
+  const [operationalRecords, setOperationalRecords] = useState([]);
+  const [newFactor, setNewFactor] = useState({ category: 'fleet', name: '', unit: '', factor_kg_co2_per_unit: '' });
+  const [newRecord, setNewRecord] = useState({ record_type: 'fleet', department_id: '', emission_factor_id: '', quantity: '', unit: '', description: '', record_date: '' });
   const [reportFilters, setReportFilters] = useState({
   module: 'environmental', department_id: '', employee_id: '',
   challenge_id: '', esg_category: '', start_date: '', end_date: '',
@@ -67,6 +71,8 @@ export default function Dashboard() {
     api.get('/departments').then((r) => setAllDepartments(r.data)).catch(console.error);
     api.get('/categories').then((r) => setCategories(r.data)).catch(console.error);
     api.get('/settings/esg-configuration').then((r) => setEsgConfig(r.data)).catch(console.error);
+    api.get('/emission-factors').then((r) => setEmissionFactors(r.data)).catch(console.error);
+    api.get('/operational-records').then((r) => setOperationalRecords(r.data)).catch(console.error);  
     api.get('/settings/notification-settings').then((r) => setNotifSettings(r.data)).catch(console.error);
     if (employeeId) {
       api.get(`/badges/employee/${employeeId}`).then((r) => setMyBadges(r.data)).catch(console.error);
@@ -258,12 +264,57 @@ export default function Dashboard() {
       setEsgConfig(res.data);
     } catch (err) { alert(err.response?.data?.error || 'Failed to update configuration'); }
   };
-
   const toggleNotificationSetting = async (type, enabled) => {
     try {
       await api.put(`/settings/notification-settings/${type}`, { enabled });
       setNotifSettings((prev) => prev.map((n) => (n.type === type ? { ...n, enabled } : n)));
     } catch (err) { alert(err.response?.data?.error || 'Failed to update notification setting'); }
+  };
+
+  const createEmissionFactor = async () => {
+    if (!newFactor.name || !newFactor.unit || !newFactor.factor_kg_co2_per_unit) {
+      return alert('Name, unit, and factor value are required');
+    }
+    try {
+      await api.post('/emission-factors', newFactor);
+      setNewFactor({ category: 'fleet', name: '', unit: '', factor_kg_co2_per_unit: '' });
+      loadAll(me?.id);
+    } catch (err) { alert(err.response?.data?.error || 'Failed to create emission factor'); }
+  };
+
+  const toggleFactorStatus = async (f) => {
+    try {
+      await api.put(`/emission-factors/${f.id}`, { status: f.status === 'active' ? 'inactive' : 'active' });
+      loadAll(me?.id);
+    } catch (err) { alert(err.response?.data?.error || 'Failed to update emission factor'); }
+  };
+
+  const deleteEmissionFactor = async (id) => {
+    try { await api.delete(`/emission-factors/${id}`); loadAll(me?.id); }
+    catch (err) { alert(err.response?.data?.error || 'Failed to delete emission factor'); }
+  };
+
+  const createOperationalRecord = async () => {
+    if (!newRecord.department_id || !newRecord.quantity) {
+      return alert('Department and quantity are required');
+    }
+    try {
+      const res = await api.post('/operational-records', newRecord);
+      setNewRecord({ record_type: 'fleet', department_id: '', emission_factor_id: '', quantity: '', unit: '', description: '', record_date: '' });
+      if (res.data.auto_calculated) {
+        alert(`Logged and auto-calculated: ${res.data.record.carbon_transaction_id ? 'carbon transaction created' : ''}`);
+      } else {
+        alert('Logged. Auto emission calculation is off (or no factor selected) — you can calculate it manually from the table.');
+      }
+      loadAll(me?.id);
+    } catch (err) { alert(err.response?.data?.error || 'Failed to log operational record'); }
+  };
+
+  const calculateOperationalRecord = async (id) => {
+    try {
+      await api.post(`/operational-records/${id}/calculate`);
+      loadAll(me?.id);
+    } catch (err) { alert(err.response?.data?.error || 'Failed to calculate emissions'); }
   };
 
   const logout = () => { localStorage.removeItem('token'); navigate('/login'); };
@@ -414,7 +465,7 @@ export default function Dashboard() {
         </>
       )}
 
-      {tab === 'Environmental' && (
+   {tab === 'Environmental' && (
         <>
           <div style={section}>
             <h2>Department Carbon Summary</h2>
@@ -446,6 +497,97 @@ export default function Dashboard() {
           <div style={section}>
             <h2>Carbon Trend Over Time</h2>
             {trend.length > 0 ? <Line data={trendData} /> : <p>No data yet.</p>}
+          </div>
+
+          <div style={section}>
+            <h2>Emission Factors</h2>
+            <p style={{ fontSize: 13, color: '#8b93a7' }}>
+              Auto emission calculation is currently <strong>{esgConfig.auto_emission_calculation ? 'ON' : 'OFF'}</strong>
+              {' '}(Settings → ESG Configuration).
+              {esgConfig.auto_emission_calculation
+                ? ' New operational records with a factor selected will calculate carbon automatically.'
+                : ' New operational records will be logged uncalculated until you trigger it manually or turn this on.'}
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12, marginBottom: 12 }}>
+              <select value={newFactor.category} onChange={(e) => setNewFactor({ ...newFactor, category: e.target.value })} style={{ padding: 6 }}>
+                <option value="purchase">Purchase</option>
+                <option value="manufacturing">Manufacturing</option>
+                <option value="expense">Expense</option>
+                <option value="fleet">Fleet</option>
+              </select>
+              <input placeholder="Name (e.g. Diesel fuel)" value={newFactor.name} onChange={(e) => setNewFactor({ ...newFactor, name: e.target.value })} style={{ padding: 6 }} />
+              <input placeholder="Unit (e.g. liter, kg, kWh)" value={newFactor.unit} onChange={(e) => setNewFactor({ ...newFactor, unit: e.target.value })} style={{ padding: 6, width: 140 }} />
+              <input type="number" step="0.000001" placeholder="kg CO2 per unit" value={newFactor.factor_kg_co2_per_unit} onChange={(e) => setNewFactor({ ...newFactor, factor_kg_co2_per_unit: e.target.value })} style={{ padding: 6, width: 140 }} />
+              <button style={btn} onClick={createEmissionFactor}>+ New Factor</button>
+            </div>
+            <table style={table}>
+              <thead><tr><th style={th}>Category</th><th style={th}>Name</th><th style={th}>Unit</th><th style={th}>kg CO2 / unit</th><th style={th}>Status</th><th style={th}>Actions</th></tr></thead>
+              <tbody>
+                {emissionFactors.map((f) => (
+                  <tr key={f.id}>
+                    <td style={td}>{f.category}</td>
+                    <td style={td}>{f.name}</td>
+                    <td style={td}>{f.unit}</td>
+                    <td style={td}>{f.factor_kg_co2_per_unit}</td>
+                    <td style={td}>{f.status}</td>
+                    <td style={td}>
+                      <button style={btn} onClick={() => toggleFactorStatus(f)}>{f.status === 'active' ? 'Deactivate' : 'Activate'}</button>
+                      <button style={btn} onClick={() => deleteEmissionFactor(f.id)}>Delete</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={section}>
+            <h2>Operational Records</h2>
+            <p style={{ fontSize: 13, color: '#8b93a7' }}>Purchase / Manufacturing / Expense / Fleet activity that emissions get calculated from.</p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12, marginBottom: 12 }}>
+              <select value={newRecord.record_type} onChange={(e) => setNewRecord({ ...newRecord, record_type: e.target.value, emission_factor_id: '' })} style={{ padding: 6 }}>
+                <option value="purchase">Purchase</option>
+                <option value="manufacturing">Manufacturing</option>
+                <option value="expense">Expense</option>
+                <option value="fleet">Fleet</option>
+              </select>
+              <select value={newRecord.department_id} onChange={(e) => setNewRecord({ ...newRecord, department_id: e.target.value })} style={{ padding: 6 }}>
+                <option value="">Department</option>
+                {allDepartments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+              <select value={newRecord.emission_factor_id} onChange={(e) => setNewRecord({ ...newRecord, emission_factor_id: e.target.value })} style={{ padding: 6 }}>
+                <option value="">No factor yet</option>
+                {emissionFactors.filter((f) => f.category === newRecord.record_type && f.status === 'active').map((f) => (
+                  <option key={f.id} value={f.id}>{f.name} ({f.unit})</option>
+                ))}
+              </select>
+              <input type="number" step="0.01" placeholder="Quantity" value={newRecord.quantity} onChange={(e) => setNewRecord({ ...newRecord, quantity: e.target.value })} style={{ padding: 6, width: 100 }} />
+              <input placeholder="Unit override (optional)" value={newRecord.unit} onChange={(e) => setNewRecord({ ...newRecord, unit: e.target.value })} style={{ padding: 6, width: 140 }} />
+              <input type="date" value={newRecord.record_date} onChange={(e) => setNewRecord({ ...newRecord, record_date: e.target.value })} style={{ padding: 6 }} />
+              <input placeholder="Description (optional)" value={newRecord.description} onChange={(e) => setNewRecord({ ...newRecord, description: e.target.value })} style={{ padding: 6, flex: 1, minWidth: 160 }} />
+              <button style={btn} onClick={createOperationalRecord}>+ Log Record</button>
+            </div>
+            <table style={table}>
+              <thead><tr><th style={th}>Type</th><th style={th}>Department</th><th style={th}>Factor</th><th style={th}>Quantity</th><th style={th}>CO2 (kg)</th><th style={th}>Date</th><th style={th}>Actions</th></tr></thead>
+              <tbody>
+                {operationalRecords.map((r) => (
+                  <tr key={r.id}>
+                    <td style={td}>{r.record_type}</td>
+                    <td style={td}>{r.department_name || '—'}</td>
+                    <td style={td}>{r.factor_name ? `${r.factor_name} (${r.factor_unit})` : '—'}</td>
+                    <td style={td}>{r.quantity} {r.unit || ''}</td>
+                    <td style={td}>{r.calculated_carbon_kg ?? '—'}</td>
+                    <td style={td}>{r.record_date ? new Date(r.record_date).toLocaleDateString() : '—'}</td>
+                    <td style={td}>
+                      {!r.carbon_transaction_id && (
+                        <button style={btn} onClick={() => calculateOperationalRecord(r.id)} disabled={!r.emission_factor_id}>
+                          {r.emission_factor_id ? 'Calculate' : 'No factor set'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </>
       )}
