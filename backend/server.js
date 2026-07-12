@@ -11,6 +11,8 @@ const challengeRoutes = require('./src/routes/challenges');
 const badgeRoutes = require('./src/routes/badges');
 const socialRoutes = require('./src/routes/social');
 const governanceRoutes = require('./src/routes/governance');
+const rewardsRoutes = require('./src/routes/rewards');
+const notificationsRoutes = require('./src/routes/notifications');
 
 const app = express();
 
@@ -40,3 +42,5 @@ app.use('/api/challenges', challengeRoutes);
 app.use('/api/badges', badgeRoutes);
 app.use('/api/social', socialRoutes);
 app.use('/api/governance', governanceRoutes);
+app.use('/api/rewards', rewardsRoutes);
+app.use('/api/notifications', notificationsRoutes);

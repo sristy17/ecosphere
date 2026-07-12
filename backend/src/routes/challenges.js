@@ -193,6 +193,18 @@ router.post('/:id/complete', async (req, res) => {
 
     const newBadges = await awardEligibleBadges(employee_id);
 
+    await pool.query(
+      `INSERT INTO notifications (employee_id, type, message) VALUES ($1, 'challenge_completed', $2)`,
+      [employee_id, `You completed a challenge and earned ${xp} XP.`]
+    );
+
+    for (const badge of newBadges) {
+      await pool.query(
+        `INSERT INTO notifications (employee_id, type, message) VALUES ($1, 'badge_unlocked', $2)`,
+        [employee_id, `Badge unlocked: "${badge.name}"!`]
+      );
+    }
+
     res.json({
       participation: result.rows[0],
       new_badges: newBadges,
@@ -203,6 +215,23 @@ router.post('/:id/complete', async (req, res) => {
     res.status(500).json({
       error: 'Failed to complete challenge',
     });
+  }
+});
+
+router.get('/participation', async (req, res) => {
+  const { employee_id } = req.query;
+  if (!employee_id) {
+    return res.status(400).json({ error: 'employee_id is required' });
+  }
+  try {
+    const result = await pool.query(
+      `SELECT challenge_id, status FROM challenge_participants WHERE employee_id = $1`,
+      [employee_id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch challenge participation' });
   }
 });
 

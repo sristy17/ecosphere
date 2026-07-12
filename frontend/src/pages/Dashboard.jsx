@@ -1,20 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Line } from 'react-chartjs-2';
 import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Tooltip,
-  Legend,
+  Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend,
 } from 'chart.js';
 import api from '../api/axios';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
+const TABS = ['Dashboard', 'Environmental', 'Social', 'Governance', 'Gamification', 'Rewards'];
+
 export default function Dashboard() {
+  const [tab, setTab] = useState('Dashboard');
   const [me, setMe] = useState(null);
   const [departments, setDepartments] = useState([]);
   const [challenges, setChallenges] = useState([]);
@@ -22,55 +19,88 @@ export default function Dashboard() {
   const [myBadges, setMyBadges] = useState([]);
   const [allBadges, setAllBadges] = useState([]);
   const [trend, setTrend] = useState([]);
+  const [activities, setActivities] = useState([]);
+  const [participation, setParticipation] = useState([]);
+  const [policies, setPolicies] = useState([]);
+  const [acks, setAcks] = useState([]);
+  const [rewards, setRewards] = useState([]);
+  const [redemptions, setRedemptions] = useState([]);
+  const [balance, setBalance] = useState({ balance: 0, total_earned: 0, total_spent: 0 });
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifs, setShowNotifs] = useState(false);
+  const [proofInputs, setProofInputs] = useState({}); // { [activityId]: url }
+  const [joinedChallengeIds, setJoinedChallengeIds] = useState(new Set());
+  const [completedChallengeIds, setCompletedChallengeIds] = useState(new Set());
   const navigate = useNavigate();
+  const notifRef = useRef(null);
 
   const loadAll = async (employeeId) => {
-    api.get('/carbon/summary/by-department').then((res) => setDepartments(res.data)).catch(console.error);
-    api.get('/challenges').then((res) => setChallenges(res.data)).catch(console.error);
-    api.get('/employees/leaderboard').then((res) => setLeaderboard(res.data)).catch(console.error);
-    api.get('/badges').then((res) => setAllBadges(res.data)).catch(console.error);
-    api.get('/carbon/trend').then((res) => setTrend(res.data)).catch(console.error);
+    api.get('/carbon/summary/by-department').then((r) => setDepartments(r.data)).catch(console.error);
+    api.get('/challenges').then((r) => setChallenges(r.data)).catch(console.error);
+    api.get('/employees/leaderboard').then((r) => setLeaderboard(r.data)).catch(console.error);
+    api.get('/badges').then((r) => setAllBadges(r.data)).catch(console.error);
+    api.get('/carbon/trend').then((r) => setTrend(r.data)).catch(console.error);
+    api.get('/social/activities').then((r) => setActivities(r.data)).catch(console.error);
+    api.get('/social/participation').then((r) => setParticipation(r.data)).catch(console.error);
+    api.get('/governance/policies').then((r) => setPolicies(r.data)).catch(console.error);
+    api.get('/governance/acknowledgements').then((r) => setAcks(r.data)).catch(console.error);
+    api.get('/rewards').then((r) => setRewards(r.data)).catch(console.error);
+    api.get('/rewards/redemptions').then((r) => setRedemptions(r.data)).catch(console.error);
     if (employeeId) {
-      api.get(`/badges/employee/${employeeId}`).then((res) => setMyBadges(res.data)).catch(console.error);
+      api.get(`/badges/employee/${employeeId}`).then((r) => setMyBadges(r.data)).catch(console.error);
+      api.get(`/rewards/balance/${employeeId}`).then((r) => setBalance(r.data)).catch(console.error);
+      api.get(`/notifications/${employeeId}`).then((r) => setNotifications(r.data)).catch(console.error);
+      api.get(`/challenges/participation`, { params: { employee_id: employeeId } })
+        .then((r) => {
+          const joined = new Set(r.data.map((p) => p.challenge_id));
+          const completed = new Set(r.data.filter((p) => p.status === 'completed').map((p) => p.challenge_id));
+          setJoinedChallengeIds(joined);
+          setCompletedChallengeIds(completed);
+        })
+        .catch(console.error);
     }
   };
 
   useEffect(() => {
     const token = localStorage.getItem('token');
-    if (!token) {
-      navigate('/login');
-      return;
-    }
+    if (!token) { navigate('/login'); return; }
     api.get('/employees/me')
-      .then((res) => {
-        setMe(res.data);
-        loadAll(res.data.id);
-      })
-      .catch(() => {
-        // No employee record or not linked yet — still load general data
-        loadAll(null);
-      });
+      .then((res) => { setMe(res.data); loadAll(res.data.id); })
+      .catch(() => loadAll(null));
   }, [navigate]);
+
+  // Close the notification dropdown when clicking outside it
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (notifRef.current && !notifRef.current.contains(e.target)) {
+        setShowNotifs(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const setMyDepartment = async (department_id) => {
     if (!me) return;
-    try {
-      await api.put(`/employees/${me.id}`, { department_id });
-      const res = await api.get('/employees/me');
-      setMe(res.data);
-      loadAll(res.data.id);
-    } catch (err) {
-      alert(err.response?.data?.error || 'Failed to update department');
-    }
+    await api.put(`/employees/${me.id}`, { department_id });
+    const res = await api.get('/employees/me');
+    setMe(res.data);
+    loadAll(res.data.id);
   };
 
   const joinChallenge = async (id) => {
     if (!me) return alert('No employee record linked yet');
     try {
       await api.post(`/challenges/${id}/join`, { employee_id: me.id });
+      setJoinedChallengeIds((prev) => new Set(prev).add(id));
       loadAll(me.id);
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to join');
+      // 409 = already joined earlier (e.g. before a page refresh) — treat as joined, not an error
+      if (err.response?.status === 409) {
+        setJoinedChallengeIds((prev) => new Set(prev).add(id));
+      } else {
+        alert(err.response?.data?.error || 'Failed to join');
+      }
     }
   };
 
@@ -78,186 +108,380 @@ export default function Dashboard() {
     if (!me) return alert('No employee record linked yet');
     try {
       const res = await api.post(`/challenges/${id}/complete`, { employee_id: me.id });
+      setCompletedChallengeIds((prev) => new Set(prev).add(id));
       if (res.data.new_badges?.length) {
-        alert(`🎉 New badge${res.data.new_badges.length > 1 ? 's' : ''} unlocked: ${res.data.new_badges.map(b => b.name).join(', ')}`);
+        alert(`🎉 New badge: ${res.data.new_badges.map(b => b.name).join(', ')}`);
+      } else {
+        alert(`✅ Challenge completed — ${res.data.participation?.xp_earned ?? ''} XP earned.`);
       }
       loadAll(me.id);
-    } catch (err) {
-      alert(err.response?.data?.error || 'Failed to complete');
-    }
+    } catch (err) { alert(err.response?.data?.error || 'Failed to complete'); }
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    navigate('/login');
+  // Single, working joinActivity — uses the inline proof URL field, no browser prompt()
+  const joinActivity = async (id) => {
+    if (!me) return alert('No employee record linked yet');
+    const proof_url = proofInputs[id] || null;
+    try { await api.post(`/social/activities/${id}/join`, { employee_id: me.id, proof_url }); loadAll(me.id); }
+    catch (err) { alert(err.response?.data?.error || 'Failed to join'); }
   };
 
-  const section = { marginTop: 32, background: '#12151c', padding: 24, borderRadius: 12, border: '1px solid #1f232c' };
+  const approveParticipation = async (id) => {
+    try { await api.post(`/social/participation/${id}/approve`); loadAll(me?.id); }
+    catch (err) { alert(err.response?.data?.error || 'Failed to approve'); }
+  };
+
+  const rejectParticipation = async (id) => {
+    try { await api.post(`/social/participation/${id}/reject`); loadAll(me?.id); }
+    catch (err) { alert(err.response?.data?.error || 'Failed to reject'); }
+  };
+
+  const acknowledgePolicy = async (id) => {
+    if (!me) return alert('No employee record linked yet');
+    try { await api.post(`/governance/policies/${id}/acknowledge`, { employee_id: me.id }); loadAll(me.id); }
+    catch (err) { alert(err.response?.data?.error || 'Failed to acknowledge'); }
+  };
+
+  const redeemReward = async (id) => {
+    if (!me) return alert('No employee record linked yet');
+    try {
+      await api.post(`/rewards/${id}/redeem`, { employee_id: me.id });
+      loadAll(me.id);
+    } catch (err) { alert(err.response?.data?.error || 'Redemption failed'); }
+  };
+
+  const markNotifRead = async (id) => {
+    try {
+      await api.post(`/notifications/${id}/read`);
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
+    } catch (err) { console.error(err); }
+  };
+
+  const logout = () => { localStorage.removeItem('token'); navigate('/login'); };
+
+  const section = { marginTop: 24, background: '#12151c', padding: 24, borderRadius: 12, border: '1px solid #1f232c' };
   const table = { width: '100%', borderCollapse: 'collapse', marginTop: 12 };
   const th = { textAlign: 'left', padding: 8, borderBottom: '2px solid #ccc' };
   const td = { padding: 8, borderBottom: '1px solid #eee' };
   const btn = { padding: '4px 10px', marginRight: 6, cursor: 'pointer' };
-
   const earnedBadgeIds = new Set(myBadges.map((b) => b.id));
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   const trendData = {
     labels: trend.map((t) => new Date(t.date).toLocaleDateString()),
-    datasets: [
-      {
-        label: 'Total carbon logged (kg)',
-        data: trend.map((t) => parseFloat(t.carbon_kg)),
-        borderColor: '#2563eb',
-        backgroundColor: 'rgba(37,99,235,0.2)',
-        tension: 0.3,
-      },
-    ],
+    datasets: [{ label: 'Total carbon logged (kg)', data: trend.map((t) => parseFloat(t.carbon_kg)), borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.2)', tension: 0.3 }],
   };
 
+  const acknowledgedPolicyIds = new Set(acks.filter(a => a.employee_id === me?.id).map(a => a.policy_id));
+  const joinedActivityIds = new Set(participation.filter(p => p.employee_id === me?.id).map(p => p.activity_id));
+
+  const totalCarbon = departments.reduce((sum, d) => sum + parseFloat(d.total_carbon_kg), 0);
+  const envScore = Math.max(0, 100 - Math.min(totalCarbon / 5, 100)).toFixed(0);
+  const socialScore = activities.length ? Math.round((participation.length / (activities.length * 3)) * 100) : 0;
+  const govScore = policies.length ? Math.round((acks.length / (policies.length * 3)) * 100) : 0;
+  const overallScore = Math.round(envScore * 0.4 + Math.min(socialScore, 100) * 0.3 + Math.min(govScore, 100) * 0.3);
+
   return (
-    <div style={{ maxWidth: 800, margin: '40px auto', fontFamily: 'sans-serif' }}>
+    <div style={{ maxWidth: 900, margin: '0 auto', fontFamily: 'sans-serif', padding: '20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1>EcoSphere Dashboard</h1>
-        <button onClick={logout}>Logout</button>
-      </div>
-
-      {/* My info / department picker */}
-      {me && (
-        <div style={section}>
-          <h2>Welcome, {me.name}</h2>
-          <p>Department: <strong>{me.department || 'Not set'}</strong></p>
-          {!me.department_id && (
-            <div>
-              <p>Pick your department:</p>
-              {departments.map((d) => (
-                <button key={d.id} style={btn} onClick={() => setMyDepartment(d.id)}>{d.name}</button>
+        <div ref={notifRef} style={{ display: 'flex', gap: 12, alignItems: 'center', position: 'relative' }}>
+          <button onClick={() => setShowNotifs((v) => !v)} style={{ position: 'relative' }}>
+            🔔
+            {unreadCount > 0 && (
+              <span style={{ position: 'absolute', top: -6, right: -6, background: '#ef4444', color: 'white', borderRadius: '50%', width: 18, height: 18, fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {unreadCount}
+              </span>
+            )}
+          </button>
+          {showNotifs && (
+            <div style={{ position: 'absolute', top: 36, right: 0, width: 320, background: '#12151c', border: '1px solid #1f232c', borderRadius: 8, padding: 12, zIndex: 10, maxHeight: 400, overflowY: 'auto' }}>
+              <strong>Notifications</strong>
+              {notifications.length === 0 && <p style={{ color: '#8b93a7', fontSize: 13 }}>None yet.</p>}
+              {notifications.map((n) => (
+                <div key={n.id} onClick={() => markNotifRead(n.id)} style={{ padding: 8, marginTop: 6, borderRadius: 6, background: n.is_read ? 'transparent' : '#1f232c', cursor: 'pointer', fontSize: 13 }}>
+                  <div>{n.message}</div>
+                  <div style={{ color: '#8b93a7', fontSize: 11, marginTop: 4 }}>{new Date(n.created_at).toLocaleString()}</div>
+                </div>
               ))}
             </div>
           )}
+          <button onClick={logout}>Logout</button>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 16, borderBottom: '1px solid #1f232c', paddingBottom: 8 }}>
+        {TABS.map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            style={{
+              padding: '8px 16px',
+              background: tab === t ? '#2563eb' : 'transparent',
+              color: tab === t ? 'white' : '#8b93a7',
+              border: tab === t ? 'none' : '1px solid #1f232c',
+              borderRadius: 6,
+              cursor: 'pointer',
+            }}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {me && !me.department_id && (
+        <div style={section}>
+          <p>Pick your department to get started:</p>
+          {departments.map((d) => (
+            <button key={d.id} style={btn} onClick={() => setMyDepartment(d.id)}>{d.name}</button>
+          ))}
         </div>
       )}
 
-      {/* Department Carbon Summary with progress bars */}
-      <div style={section}>
-        <h2>Department Carbon Summary</h2>
-        <table style={table}>
-          <thead>
-            <tr>
-              <th style={th}>Department</th>
-              <th style={th}>Total (kg)</th>
-              <th style={th}>Target (kg)</th>
-              <th style={th}>Progress</th>
-            </tr>
-          </thead>
-          <tbody>
-            {departments.map((d) => {
-              const total = parseFloat(d.total_carbon_kg);
-              const target = d.target_kg ? parseFloat(d.target_kg) : null;
-              const pct = target ? Math.min((total / target) * 100, 100) : null;
-              return (
-                <tr key={d.id}>
-                  <td style={td}>{d.name}</td>
-                  <td style={td}>{d.total_carbon_kg}</td>
-                  <td style={td}>{target ?? '—'}</td>
-                  <td style={td}>
-                    {target ? (
-                      <div style={{ background: '#1f232c', borderRadius: 4, overflow: 'hidden', width: 120 }}>
-                        <div style={{
-                          width: `${pct}%`,
-                          background: pct >= 100 ? '#ef4444' : '#2563eb',
-                          height: 10,
-                        }} />
-                      </div>
-                    ) : 'No target set'}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Carbon trend chart */}
-      <div style={section}>
-        <h2>Carbon Trend Over Time</h2>
-        {trend.length > 0 ? <Line data={trendData} /> : <p>No data yet.</p>}
-      </div>
-
-      {/* Challenges */}
-      <div style={section}>
-        <h2>Challenges</h2>
-        <table style={table}>
-          <thead>
-            <tr>
-              <th style={th}>Title</th>
-              <th style={th}>XP</th>
-              <th style={th}>Difficulty</th>
-              <th style={th}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {challenges.map((c) => (
-              <tr key={c.id}>
-                <td style={td}>{c.title}</td>
-                <td style={td}>{c.xp_reward}</td>
-                <td style={td}>{c.difficulty}</td>
-                <td style={td}>
-                  <button style={btn} onClick={() => joinChallenge(c.id)}>Join</button>
-                  <button style={btn} onClick={() => completeChallenge(c.id)}>Complete</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Badges */}
-      <div style={section}>
-        <h2>Badges</h2>
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 12 }}>
-          {allBadges.map((b) => {
-            const earned = earnedBadgeIds.has(b.id);
-            return (
-              <div key={b.id} style={{
-                textAlign: 'center',
-                padding: 16,
-                borderRadius: 8,
-                background: earned ? '#1f232c' : '#0f1115',
-                border: earned ? '1px solid #2563eb' : '1px solid #1f232c',
-                opacity: earned ? 1 : 0.4,
-                width: 140,
-              }}>
-                <div style={{ fontSize: 32 }}>{b.icon || '🏅'}</div>
-                <div style={{ fontWeight: 600, marginTop: 6 }}>{b.name}</div>
-                <div style={{ fontSize: 12, color: '#8b93a7', marginTop: 4 }}>{b.description}</div>
-                <div style={{ fontSize: 11, color: '#8b93a7', marginTop: 6 }}>{b.xp_required} XP</div>
+      {tab === 'Dashboard' && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginTop: 24 }}>
+            {[
+              ['Environmental', envScore, '#4CAF50'],
+              ['Social', Math.min(socialScore, 100), '#2196F3'],
+              ['Governance', Math.min(govScore, 100), '#9C27B0'],
+              ['Overall ESG', overallScore, '#00BCD4'],
+            ].map(([label, score, color]) => (
+              <div key={label} style={{ ...section, marginTop: 0, borderTop: `3px solid ${color}` }}>
+                <div style={{ color: '#8b93a7', fontSize: 13 }}>{label} Score</div>
+                <div style={{ fontSize: 28, fontWeight: 700, marginTop: 4 }}>{score} / 100</div>
               </div>
-            );
-          })}
-        </div>
-      </div>
+            ))}
+          </div>
+          <div style={section}>
+            {me ? (
+              <>
+                <h2>Welcome, {me.name}</h2>
+                <p>Department: <strong>{me.department || 'Not set'}</strong></p>
+              </>
+            ) : (
+              <p style={{ color: '#ef4444' }}>
+                No employee record linked to your account yet — Social, Governance, Gamification, and Rewards actions won't work until this is fixed. See backend signup/employee linking.
+              </p>
+            )}
+          </div>
+        </>
+      )}
 
-      {/* Leaderboard */}
-      <div style={section}>
-        <h2>Leaderboard</h2>
-        <table style={table}>
-          <thead>
-            <tr>
-              <th style={th}>Name</th>
-              <th style={th}>Total XP</th>
-            </tr>
-          </thead>
-          <tbody>
-            {leaderboard
-              .sort((a, b) => b.total_xp - a.total_xp)
-              .map((l) => (
-                <tr key={l.employee_id}>
-                  <td style={td}>{l.name}</td>
-                  <td style={td}>{l.total_xp}</td>
-                </tr>
+      {tab === 'Environmental' && (
+        <>
+          <div style={section}>
+            <h2>Department Carbon Summary</h2>
+            <table style={table}>
+              <thead><tr><th style={th}>Department</th><th style={th}>Total (kg)</th><th style={th}>Target (kg)</th><th style={th}>Progress</th></tr></thead>
+              <tbody>
+                {departments.map((d) => {
+                  const total = parseFloat(d.total_carbon_kg);
+                  const target = d.target_kg ? parseFloat(d.target_kg) : null;
+                  const pct = target ? Math.min((total / target) * 100, 100) : null;
+                  return (
+                    <tr key={d.id}>
+                      <td style={td}>{d.name}</td>
+                      <td style={td}>{d.total_carbon_kg}</td>
+                      <td style={td}>{target ?? '—'}</td>
+                      <td style={td}>
+                        {target ? (
+                          <div style={{ background: '#1f232c', borderRadius: 4, overflow: 'hidden', width: 120 }}>
+                            <div style={{ width: `${pct}%`, background: pct >= 100 ? '#ef4444' : '#2563eb', height: 10 }} />
+                          </div>
+                        ) : 'No target set'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div style={section}>
+            <h2>Carbon Trend Over Time</h2>
+            {trend.length > 0 ? <Line data={trendData} /> : <p>No data yet.</p>}
+          </div>
+        </>
+      )}
+
+      {tab === 'Social' && (
+        <>
+          <div style={section}>
+            <h2>CSR Activities</h2>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 12 }}>
+              {activities.map((a) => (
+                <div key={a.id} style={{ border: '1px solid #1f232c', borderRadius: 8, padding: 16, width: 220 }}>
+                  <strong>{a.title}</strong>
+                  <p style={{ fontSize: 13, color: '#8b93a7' }}>{a.description}</p>
+                  <input
+                    type="text"
+                    placeholder="Proof URL (optional)"
+                    value={proofInputs[a.id] || ''}
+                    onChange={(e) => setProofInputs({ ...proofInputs, [a.id]: e.target.value })}
+                    style={{ width: '100%', marginBottom: 8, padding: 4, fontSize: 12 }}
+                  />
+                  <button style={btn} disabled={joinedActivityIds.has(a.id)} onClick={() => joinActivity(a.id)}>
+                    {joinedActivityIds.has(a.id) ? 'Joined' : 'Join'}
+                  </button>
+                </div>
               ))}
-          </tbody>
-        </table>
-      </div>
+            </div>
+          </div>
+          <div style={section}>
+            <h2>Employee Participation: approval queue</h2>
+            <table style={table}>
+              <thead><tr><th style={th}>Employee</th><th style={th}>Activity</th><th style={th}>Proof</th><th style={th}>Status</th><th style={th}>Actions</th></tr></thead>
+              <tbody>
+                {participation.map((p) => (
+                  <tr key={p.id}>
+                    <td style={td}>{p.employee_name}</td>
+                    <td style={td}>{p.activity_title}</td>
+                    <td style={td}>{p.proof_url ? <a href={p.proof_url} target="_blank" rel="noreferrer">view</a> : <span style={{ color: '#ef4444' }}>none</span>}</td>
+                    <td style={td}>{p.approval_status}</td>
+                    <td style={td}>
+                      {p.approval_status === 'pending' && (
+                        <>
+                          <button style={btn} onClick={() => approveParticipation(p.id)}>Approve</button>
+                          <button style={btn} onClick={() => rejectParticipation(p.id)}>Reject</button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {tab === 'Governance' && (
+        <>
+          <div style={section}>
+            <h2>ESG Policies</h2>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 12 }}>
+              {policies.map((p) => (
+                <div key={p.id} style={{ border: '1px solid #1f232c', borderRadius: 8, padding: 16, width: 220 }}>
+                  <strong>{p.title}</strong>
+                  <p style={{ fontSize: 13, color: '#8b93a7' }}>{p.description}</p>
+                  <button style={btn} disabled={acknowledgedPolicyIds.has(p.id)} onClick={() => acknowledgePolicy(p.id)}>
+                    {acknowledgedPolicyIds.has(p.id) ? 'Acknowledged' : 'Acknowledge'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={section}>
+            <h2>Policy Acknowledgements</h2>
+            <table style={table}>
+              <thead><tr><th style={th}>Employee</th><th style={th}>Policy</th><th style={th}>Date</th></tr></thead>
+              <tbody>
+                {acks.map((a) => (
+                  <tr key={a.id}><td style={td}>{a.employee_name}</td><td style={td}>{a.policy_title}</td><td style={td}>{new Date(a.acknowledged_at).toLocaleDateString()}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {tab === 'Gamification' && (
+        <>
+          <div style={section}>
+            <h2>Challenges</h2>
+            <table style={table}>
+              <thead><tr><th style={th}>Title</th><th style={th}>XP</th><th style={th}>Difficulty</th><th style={th}>Actions</th></tr></thead>
+              <tbody>
+                {challenges.map((c) => (
+                  <tr key={c.id}>
+                    <td style={td}>{c.title}</td><td style={td}>{c.xp_reward}</td><td style={td}>{c.difficulty}</td>
+                    <td style={td}>
+                      <button
+                        style={btn}
+                        disabled={joinedChallengeIds.has(c.id)}
+                        onClick={() => joinChallenge(c.id)}
+                      >
+                        {joinedChallengeIds.has(c.id) ? 'Joined' : 'Join'}
+                      </button>
+                      <button
+                        style={btn}
+                        disabled={completedChallengeIds.has(c.id)}
+                        onClick={() => completeChallenge(c.id)}
+                      >
+                        {completedChallengeIds.has(c.id) ? 'Completed ✓' : 'Complete'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={section}>
+            <h2>Badges</h2>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 12 }}>
+              {allBadges.map((b) => {
+                const earned = earnedBadgeIds.has(b.id);
+                return (
+                  <div key={b.id} style={{ textAlign: 'center', padding: 16, borderRadius: 8, background: earned ? '#1f232c' : '#0f1115', border: earned ? '1px solid #2563eb' : '1px solid #1f232c', opacity: earned ? 1 : 0.4, width: 140 }}>
+                    <div style={{ fontSize: 32 }}>{b.icon || '🏅'}</div>
+                    <div style={{ fontWeight: 600, marginTop: 6 }}>{b.name}</div>
+                    <div style={{ fontSize: 12, color: '#8b93a7', marginTop: 4 }}>{b.description}</div>
+                    <div style={{ fontSize: 11, color: '#8b93a7', marginTop: 6 }}>{b.xp_required} XP</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div style={section}>
+            <h2>Leaderboard</h2>
+            <table style={table}>
+              <thead><tr><th style={th}>Name</th><th style={th}>Total XP</th></tr></thead>
+              <tbody>
+                {leaderboard.sort((a, b) => b.total_xp - a.total_xp).map((l) => (
+                  <tr key={l.employee_id}><td style={td}>{l.name}</td><td style={td}>{l.total_xp}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {tab === 'Rewards' && (
+        <>
+          <div style={section}>
+            <h2>Your Points Balance: {balance.balance}</h2>
+            <p style={{ color: '#8b93a7', fontSize: 13 }}>Earned: {balance.total_earned} · Redeemed: {balance.total_spent}</p>
+          </div>
+          <div style={section}>
+            <h2>Reward Catalog</h2>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 12 }}>
+              {rewards.map((r) => {
+                const canAfford = balance.balance >= r.points_required && r.stock > 0;
+                return (
+                  <div key={r.id} style={{ border: '1px solid #1f232c', borderRadius: 8, padding: 16, width: 220 }}>
+                    <strong>{r.name}</strong>
+                    <p style={{ fontSize: 13, color: '#8b93a7' }}>{r.description}</p>
+                    <p style={{ fontSize: 13 }}>{r.points_required} pts · {r.stock} left</p>
+                    <button style={btn} disabled={!canAfford} onClick={() => redeemReward(r.id)}>
+                      {r.stock <= 0 ? 'Out of stock' : canAfford ? 'Redeem' : 'Not enough points'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div style={section}>
+            <h2>Redemption History</h2>
+            <table style={table}>
+              <thead><tr><th style={th}>Employee</th><th style={th}>Reward</th><th style={th}>Points</th><th style={th}>Date</th></tr></thead>
+              <tbody>
+                {redemptions.map((r) => (
+                  <tr key={r.id}><td style={td}>{r.employee_name}</td><td style={td}>{r.reward_name}</td><td style={td}>{r.points_spent}</td><td style={td}>{new Date(r.redeemed_at).toLocaleDateString()}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }

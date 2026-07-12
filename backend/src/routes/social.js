@@ -21,14 +21,49 @@ router.post('/activities', async (req, res) => {
 });
 
 router.post('/activities/:id/join', async (req, res) => {
-  const { employee_id } = req.body;
+  const { employee_id, proof_url } = req.body;
   try {
     const r = await pool.query(
-      `INSERT INTO csr_participation (employee_id, activity_id) VALUES ($1,$2)
+      `INSERT INTO csr_participation (employee_id, activity_id, proof_url) VALUES ($1,$2,$3)
        ON CONFLICT DO NOTHING RETURNING *`,
-      [employee_id, req.params.id]
+      [employee_id, req.params.id, proof_url || null]
     );
     res.status(201).json(r.rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/participation/:id/approve', async (req, res) => {
+  try {
+    const check = await pool.query('SELECT proof_url FROM csr_participation WHERE id=$1', [req.params.id]);
+    if (!check.rows[0]) return res.status(404).json({ error: 'Not found' });
+    if (!check.rows[0].proof_url) {
+      return res.status(400).json({ error: 'Cannot approve without proof — evidence is required' });
+    }
+    const r = await pool.query(
+      `UPDATE csr_participation SET approval_status='approved', points_earned=25, reviewed_at=NOW()
+       WHERE id=$1 RETURNING *`,
+      [req.params.id]
+    );
+    await pool.query(
+      `INSERT INTO notifications (employee_id, type, message) VALUES ($1, 'csr_approved', $2)`,
+      [r.rows[0].employee_id, `Your CSR activity participation was approved — 25 points earned.`]
+    );
+    res.json(r.rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/participation/:id/reject', async (req, res) => {
+  try {
+    const r = await pool.query(
+      `UPDATE csr_participation SET approval_status='rejected', reviewed_at=NOW()
+       WHERE id=$1 RETURNING *`,
+      [req.params.id]
+    );
+    await pool.query(
+  `INSERT INTO notifications (employee_id, type, message) VALUES ($1, 'csr_rejected', $2)`,
+  [r.rows[0].employee_id, `Your CSR activity participation was rejected. You can review and resubmit.`]
+  );
+    res.json(r.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

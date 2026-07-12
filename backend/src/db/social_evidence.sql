@@ -1,0 +1,3 @@
+ALTER TABLE csr_participation
+  ADD COLUMN IF NOT EXISTS proof_url TEXT,
+  ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;
