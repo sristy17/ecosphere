@@ -66,4 +66,21 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+router.post('/:id/target', async (req, res) => {
+  const { target_kg } = req.body;
+  if (target_kg === undefined) return res.status(400).json({ error: 'target_kg required' });
+  try {
+    const result = await pool.query(`
+      INSERT INTO environmental_scores (department_id, target_kg, total_carbon_kg, score)
+      VALUES ($1, $2, 0, 0)
+      ON CONFLICT (department_id) DO UPDATE SET target_kg = $2, updated_at = CURRENT_TIMESTAMP
+      RETURNING *
+    `, [req.params.id, target_kg]);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to set target' });
+  }
+});
+
 module.exports = router;

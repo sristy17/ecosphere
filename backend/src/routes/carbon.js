@@ -52,4 +52,34 @@ router.get('/summary/by-department', async (req, res) => {
   }
 });
 
+router.get('/summary/by-department', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT d.id, d.name, COALESCE(SUM(ct.carbon_kg), 0) AS total_carbon_kg, es.target_kg
+      FROM departments d
+      LEFT JOIN carbon_transactions ct ON ct.department_id = d.id
+      LEFT JOIN environmental_scores es ON es.department_id = d.id
+      GROUP BY d.id, d.name, es.target_kg
+      ORDER BY total_carbon_kg DESC
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch summary' });
+  }
+});
+
+router.get('/trend', async (req, res) => {
+  const { department_id } = req.query;
+  try {
+    const result = department_id
+      ? await pool.query(`SELECT date, SUM(carbon_kg) AS carbon_kg FROM carbon_transactions WHERE department_id = $1 GROUP BY date ORDER BY date ASC`, [department_id])
+      : await pool.query(`SELECT date, SUM(carbon_kg) AS carbon_kg FROM carbon_transactions GROUP BY date ORDER BY date ASC`);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch trend' });
+  }
+});
+
 module.exports = router;

@@ -47,7 +47,13 @@ export default function Dashboard() {
     navigate('/login');
   };
 
-  const sectionStyle = { marginTop: 40 };
+  const sectionStyle = {
+  marginTop: 32,
+  background: '#12151c',
+  padding: 24,
+  borderRadius: 12,
+  border: '1px solid #1f232c',
+};
   const tableStyle = { width: '100%', borderCollapse: 'collapse', marginTop: 12 };
   const thStyle = { textAlign: 'left', padding: 8, borderBottom: '2px solid #ccc' };
   const tdStyle = { padding: 8, borderBottom: '1px solid #eee' };
