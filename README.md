@@ -20,16 +20,32 @@ Organizations struggle to make ESG (Environmental, Social, Governance) tracking 
 - Company-wide XP leaderboard
 
 ## Project Structure
+
+```text
 ecosphere/
 ├── backend/
 │   ├── server.js
 │   └── src/
-│       ├── db/          # DB connection, schema, seed script
-│       └── routes/      # auth, departments, carbon, employees, challenges
+│       ├── db/
+│       │   ├── db.js
+│       │   ├── schema.sql
+│       │   └── seed.js
+│       └── routes/
+│           ├── auth.js
+│           ├── departments.js
+│           ├── carbon.js
+│           ├── employees.js
+│           └── challenges.js
+│
 └── frontend/
-└── src/
-├── api/          # axios instance
-└── pages/        # Login, Signup, Dashboard
+    └── src/
+        ├── api/
+        │   └── axios.js
+        └── pages/
+            ├── Login.jsx
+            ├── Signup.jsx
+            └── Dashboard.jsx
+```
 
 ## Setup
 
