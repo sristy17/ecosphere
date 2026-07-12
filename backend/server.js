@@ -9,6 +9,8 @@ const carbonRoutes = require('./src/routes/carbon');
 const employeeRoutes = require('./src/routes/employees');
 const challengeRoutes = require('./src/routes/challenges');
 const badgeRoutes = require('./src/routes/badges');
+const socialRoutes = require('./src/routes/social');
+const governanceRoutes = require('./src/routes/governance');
 
 const app = express();
 
@@ -36,3 +38,5 @@ app.use('/api/carbon', carbonRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/challenges', challengeRoutes);
 app.use('/api/badges', badgeRoutes);
+app.use('/api/social', socialRoutes);
+app.use('/api/governance', governanceRoutes);

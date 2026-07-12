@@ -39,22 +39,6 @@ router.get('/', async (req, res) => {
 router.get('/summary/by-department', async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT d.id, d.name, COALESCE(SUM(ct.carbon_kg), 0) AS total_carbon_kg
-      FROM departments d
-      LEFT JOIN carbon_transactions ct ON ct.department_id = d.id
-      GROUP BY d.id, d.name
-      ORDER BY total_carbon_kg DESC
-    `);
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to fetch summary' });
-  }
-});
-
-router.get('/summary/by-department', async (req, res) => {
-  try {
-    const result = await pool.query(`
       SELECT d.id, d.name, COALESCE(SUM(ct.carbon_kg), 0) AS total_carbon_kg, es.target_kg
       FROM departments d
       LEFT JOIN carbon_transactions ct ON ct.department_id = d.id
